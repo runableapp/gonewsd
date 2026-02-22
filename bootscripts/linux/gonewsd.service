@@ -1,0 +1,25 @@
+#
+# Copyright © 2026 Runable.app. GPL-3.0.
+#
+[Unit]
+Description=gonewsd NNTP news server
+Documentation=https://github.com/runableapp/gonewsd
+After=network.target
+
+[Service]
+Type=simple
+User=usenet
+Group=usenet
+RuntimeDirectory=gonewsd
+# assumes config is at /etc/gonewsd.conf
+ExecStart=/usr/local/bin/gonewsd
+
+# Uncomment to auto-restart on failure:
+#Restart=on-failure
+#RestartSec=5
+
+StandardOutput=append:/var/log/gonewsd/gonewsd.log
+StandardError=append:/var/log/gonewsd/gonewsd.err
+
+[Install]
+WantedBy=multi-user.target

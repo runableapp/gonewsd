@@ -1,0 +1,48 @@
+#!/bin/sh
+#
+# Copyright © 2026 Runable.app. GPL-3.0.
+#
+# gonewsd boot script (SysV init)
+# Use with: cp gonewsd-boot /etc/init.d/gonewsd && chmod 755 /etc/init.d/gonewsd
+# Then create rc*.d symlinks or use update-rc.d / chkconfig.
+
+# chkconfig: 345 99 01
+# description: gonewsd NNTP server
+#
+### BEGIN INIT INFO
+# Provides:       gonewsd
+# Default-Start:  3 5
+# Default-Stop:   0 1 6
+# Description:    NNTP news server (gonewsd)
+### END INIT INFO
+
+PATH="/sbin:/bin:/usr/sbin:/usr/bin"; export PATH
+GONEWSD="${GONEWSD:-/usr/local/bin/gonewsd}"
+CONFIG="${GONEWSD_CONFIG:-/etc/gonewsd.conf}"
+ECHO=/bin/echo
+umask 022
+
+case "$1" in
+    'start')
+	$ECHO -n "gonewsd start: "
+	logger -t gonewsd "nntp daemon started by '$0 $1'"
+	"$GONEWSD" -c "$CONFIG"
+	$ECHO ok
+	;;
+
+    'stop')
+	$ECHO -n "gonewsd stop: "
+	killall gonewsd 2>/dev/null || true
+	logger -t gonewsd "nntp daemon stopped by '$0 $1'"
+	$ECHO ok
+	;;
+
+    'restart')
+	$0 stop && $0 start
+	;;
+
+    *)
+	$ECHO "usage: $0 {start|stop|restart}"
+	;;
+esac
+exit 0

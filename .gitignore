@@ -1,0 +1,23 @@
+# Build output (task build -> bin/; ad-hoc go build -> current dir)
+.cursor/
+.vscode/
+bin/
+./gonewsd
+./authtestclient
+./nntpclient
+
+# Test artifacts (created by build-test.sh / task test)
+test-scripts/spool/
+test-scripts/auth.db
+test-scripts/auth.log
+test-scripts/gonewsd.pid
+test-scripts/auth-test/
+
+# Local artifacts (if running manually outside test-scripts/)
+auth.db
+auth.log
+gonewsd.pid
+
+notes/
+test-scripts/
+

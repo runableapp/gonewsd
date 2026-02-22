@@ -1,0 +1,63 @@
+name: Build
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build:
+    name: Build ${{ matrix.goos }}-${{ matrix.goarch }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-latest
+            goos: linux
+            goarch: amd64
+          - runner: macos-latest
+            goos: darwin
+            goarch: amd64
+          - runner: macos-latest
+            goos: darwin
+            goarch: arm64
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Read version
+        id: version
+        run: echo "ver=$(cat VERSION.txt | tr -d '[:space:]')" >> "$GITHUB_OUTPUT"
+
+      - name: Build
+        env:
+          CGO_ENABLED: 0
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+        run: |
+          cp VERSION.txt cmd/gonewsd/resources/VERSION.txt
+          mkdir -p bin
+          go build -ldflags="-s -w" -o bin/gonewsd ./cmd/gonewsd
+
+      - name: Archive binaries
+        run: |
+          cp gonewsdadm bin/
+          cp install-ubuntu-service.sh bin/
+          cp manuals/INSTALL.md bin/
+          cp bootscripts/linux/gonewsd.service bin/
+          cd bin
+          zip -r ../gonewsd-v${{ steps.version.outputs.ver }}-${{ matrix.goos }}-${{ matrix.goarch }}.zip .
+          cd ..
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: gonewsd-v${{ steps.version.outputs.ver }}-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: gonewsd-v${{ steps.version.outputs.ver }}-${{ matrix.goos }}-${{ matrix.goarch }}.zip

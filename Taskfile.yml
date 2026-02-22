@@ -1,0 +1,60 @@
+version: '3'
+
+tasks:
+  build:
+    desc: Build gonewsd into bin/
+    cmds:
+      - cp VERSION.txt cmd/gonewsd/resources/VERSION.txt
+      - mkdir -p bin
+      - CGO_ENABLED=0 go build -ldflags="-s -w" -o bin/gonewsd ./cmd/gonewsd
+
+  build-test:
+    desc: Build test binaries (authtestclient, nntpclient) into bin/
+    cmds:
+      - mkdir -p bin
+      - CGO_ENABLED=0 go build -ldflags="-s -w" -o bin/authtestclient ./cmd/authtestclient
+      - CGO_ENABLED=0 go build -ldflags="-s -w" -o bin/nntpclient ./cmd/nntpclient
+
+  build-all:
+    desc: Build all binaries (gonewsd + test binaries)
+    cmds:
+      - task: build
+      - task: build-test
+
+  clean:
+    desc: Remove bin/ and generated artifacts
+    cmds:
+      - rm -rf bin
+
+  test:
+    desc: Build all and run automated test scripts
+    cmds:
+      - task: build-all
+      # Clean up test artifacts from previous runs
+      - rm -rf ./test-scripts/spool ./test-scripts/auth.db ./test-scripts/auth.log ./test-scripts/gonewsd.pid ./test-scripts/auth-test
+      - ./test-scripts/create-test-groups.sh
+      - |
+        # Start gonewsd in background
+        ./bin/gonewsd -d -c ./test-scripts/test.conf &
+        SRVPID=$!
+        trap "kill $SRVPID 2>/dev/null || true" EXIT
+        sleep 2
+        # Run tests
+        ./test-scripts/test-gonewsd.sh || true
+        ./test-scripts/test-mailgateway.sh || true
+        # Stop server and wait for port release
+        kill $SRVPID 2>/dev/null || true
+        sleep 1
+      - ./test-scripts/test-auth.sh
+
+  test-auth:
+    desc: Run auth tests
+    cmds:
+      - task: build-all
+      - ./test-scripts/test-auth.sh
+
+  test-mailgateway:
+    desc: Run mail gateway tests
+    cmds:
+      - task: build
+      - ./test-scripts/test-mailgateway.sh

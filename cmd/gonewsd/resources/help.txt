@@ -1,0 +1,154 @@
+NAME
+  gonewsd - simple NNTP news server (Go port of newsd)
+
+SYNOPSIS
+  gonewsd [ -c config-file ] [ -d ] [ -b ]
+  gonewsd mailgateway [ -preserve-date ] <group>
+  gonewsd rotate
+  gonewsd adduser [ -user <email> ] [ -pass <password> ] [ -groups <list|*> ]
+  gonewsd listuser [ -format pretty | json ]
+  gonewsd deleteuser [ -user <email> ] [ -y ]
+  gonewsd updateuser [ -user <email> ] [ -pass <password> ] [ -groups <list|*> ]
+  gonewsd addgroup [ -group <name> ] [ -g group_perm ] [ -o world_perm ]
+                   [ -desc <description> ] [ -creator <name> ] [ -postlimit <n> ]
+                   [ -ccpost <email> ] [ -replyto <email> ] [ -voidemail <email> ]
+  gonewsd deletegroup [ -group <name> ] [ -archive ] [ -y ]
+  gonewsd updategroup [ -group <name> ] [ -g group_perm ] [ -o world_perm ] [ -archive ]
+                      [ -desc <description> ] [ -creator <name> ] [ -postlimit <n> ]
+                      [ -ccpost <email> ] [ -replyto <email> ] [ -voidemail <email> ]
+  gonewsd listgroup [ -format pretty | json | tsv ]
+  gonewsd help
+  gonewsd version
+
+DESCRIPTION
+  Gonewsd is a standalone local NNTP news server for private newsgroup
+  serving on a single server. It is useful for serving private
+  newsgroup(s) to an intranet or the Internet and can act as a simple
+  mail gateway; it does not interface with other news servers and cannot
+  manage distributed news feeds (e.g. Usenet).
+
+  Each client connection is handled by a goroutine; the connection
+  remains open until the client closes it (e.g. when the user closes
+  their news reader).
+
+Options:
+  -c configfile   Use configfile to configure the news server.
+  -d              Debug mode: run in foreground, log to stderr at debug level.
+  -b              Background mode: fork into background (daemonize). Default is
+                  foreground. NOTE: -b is not recommended on systemd-based systems
+                  (Ubuntu, Debian, etc.) because systemd manages the process lifecycle.
+                  Use -b only for non-systemd init systems or manual daemon control.
+  -preserve-date  Use only with mailgateway; honor the Date: field of
+                  the incoming message instead of rewriting it.
+  help            Show this help text (embedded; no separate man page).
+  version         Show version and copyright.
+
+Commands:
+  mailgateway <group>
+                  Gateway emails from stdin into a newsgroup.
+                  Used in /etc/aliases. See "Configuring a Mail Gateway" below.
+  rotate          Force the log file to be rotated.
+
+Admin commands (auth.db and config -c required). Auth data is stored in a normalized SQLite DB
+(users, groups, group_membership). See manuals/ACL_DB.md for schema.
+
+  adduser         Add a user (email, password, comma-separated groups or *).
+                  If -user, -pass, or -groups are omitted and stdin is a TTY, you are prompted.
+                  Email must be valid (e.g. user@example.com); invalid input is rejected and re-asked.
+                  Password prompt shows requirements (9-20 chars, letters/digits/special, no spaces);
+                  invalid password is rejected and re-asked.
+                  When prompted for groups: valid groups are listed first; "*" is valid (all groups).
+                  If you enter an invalid group name, the invalid name(s) are shown and the next
+                  prompt pre-fills your previous input so you can edit it (cursor at end) and re-enter.
+  listuser        List all users. -format pretty: ASCII table; -format json: JSON array; default: tab-separated.
+  deleteuser      Remove a user; -y skips confirmation.
+                  If -user is omitted and stdin is a TTY, you are prompted for an existing user email.
+                  Invalid email or user not found re-prompts with your previous input pre-filled.
+  updateuser      Update a user's password and/or groups; omit -pass or -groups to leave unchanged.
+                  If -user is omitted and stdin is a TTY, you are prompted for an existing user email.
+                  Invalid or non-existent user re-prompts with pre-fill. If both -pass and -groups are
+                  omitted and stdin is a TTY, you are prompted for new password (blank = keep) and/or
+                  new groups (blank = keep); invalid input re-prompts with pre-fill.
+  addgroup        Create a newsgroup and set ACL (group/world perm: r, w, rw).
+                  Options: -desc (description), -creator, -postlimit (max articles),
+                  -ccpost (CC email), -replyto, -voidemail (bounce address).
+                  If -group is omitted and stdin is a TTY, you are prompted for all fields.
+                  If the group already exists, gonewsd prints a warning and suggests updategroup.
+  deletegroup     Remove group ACL and optionally spool dir; -archive hides from LIST; -y skips confirmation.
+                  If -group is supplied and the group does not exist, gonewsd prints "no such group" and exits.
+                  If -group is omitted and stdin is a TTY, you are prompted for an existing group name.
+  updategroup     Change a group's ACL (permissions, archived).
+                  If -group is supplied and the group does not exist, gonewsd prints "no such group" and exits.
+                  If -group is omitted and stdin is a TTY, you are prompted for an existing group name.
+                  If -g, -o, or -archive are omitted and stdin is a TTY, you are prompted for group perm,
+                  world perm, and archived (current values shown; blank keeps current).
+  listgroup       List groups (all groups are in the auth DB). Default: vertical block per group;
+                  -format pretty: ASCII table; -format json: JSON array; -format tsv: tab-separated.
+
+ADMINISTRATION
+
+Creating New Groups
+  Use the addgroup admin command to create newsgroups:
+
+    gonewsd addgroup -group my.newsgroup -g rw -o r -desc "My newsgroup"
+
+  This creates the group with specified permissions (group: rw, world: r).
+  Additional options: -creator, -postlimit, -ccpost, -replyto, -voidemail.
+  If -group is omitted and stdin is a TTY, you will be prompted for all fields.
+
+  You can also create group directories and .config files manually
+  (see SpoolDir layout and .config format: description, creator,
+  postlimit, ccpost, replyto, voidemail). Posting is controlled by auth/ACL.
+
+Removing Groups
+  To remove a newsgroup, delete that group's spool directory.
+  Gonewsd will no longer list or serve it.
+
+Configuring a Mail Gateway
+  1) Add a 'replyto' line in the newsgroup's .config file, e.g.:
+     replyto rush.general@yourdomain.com
+
+  2) Create an entry in /etc/aliases, e.g.:
+     rush.general: "|gonewsd mailgateway rush.general"
+     Run newaliases(1) to apply.
+
+  3) If your MTA delivers to pipes as a specific user, run gonewsd
+     as that user or setuid as needed so it can write to the spool.
+
+  4) Send a test email to the list address to verify delivery.
+
+SEE ALSO
+  gonewsd.conf    Template config in project root; see manuals/CONFIG-COMPAT.md for all directives.
+  manuals/ACL_DB.md  Auth DB schema (users, groups, group_membership).
+  RFC 977  - NNTP Protocol
+  RFC 2980 - NNTP extensions
+  RFC 1036 - Usenet news message format
+
+REPORTING BUGS
+  Contact the maintainer (see AUTHORS below) or use your project's
+  issue tracker.
+
+SUPPORTED NEWS READERS
+  Tested with Thunderbird, tin, and other NNTP clients. Should work
+  with most NNTP news readers.
+
+AUTHORS
+  vibecoding@runable.app (gonewsd)
+  Runable.app
+
+CREDIT
+  Gonewsd is a Go port of newsd, https://github.com/erco77/newsd
+  Original newsd authors: Greg Ercolano (erco@seriss.com), Michael Sweet
+
+COPYRIGHT
+  Copyright © 2026 Runable.app. GPL-3.0.
+  This program is free software; you can redistribute it and/or modify
+  it under the terms of the GNU General Public License as published by
+  the Free Software Foundation; either version 3 of the License, or
+  (at your option) any later version. See the LICENSE file.
+
+NO WARRANTY
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+  GNU General Public License for more details.

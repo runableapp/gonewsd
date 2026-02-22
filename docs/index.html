@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>gonewsd - Simple NNTP News Server</title>
+  <link rel="icon" type="image/x-icon" href="favicon.ico">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<button class="theme-toggle" onclick="toggleTheme()" title="Toggle theme">🌙</button>
+
+<header>
+  <div class="emoji-container" id="emojiContainer"></div>
+  <h1>📰 gonewsd</h1>
+  <p class="tagline">A simple, standalone NNTP news server written in Go</p>
+  <div class="hero-graphic" style="height: auto; background: transparent; border: none;">
+    <img src="gonewsd.webp" alt="gonewsd" style="max-width: 100%; height: auto; border-radius: 16px;">
+  </div>
+  <a href="https://github.com/runableapp/gonewsd" class="btn">View on GitHub</a>
+</header>
+
+<div class="container">
+
+  <section>
+    <h2>💡 What is gonewsd?</h2>
+    <p>
+      <strong>gonewsd</strong> is a lightweight, standalone NNTP (Network News Transfer Protocol) server
+      for hosting private newsgroups. It's a Go port of the original
+      <a href="https://github.com/erco77/newsd">newsd</a> by Greg Ercolano.
+    </p>
+    <p>
+      Unlike traditional Usenet servers, gonewsd is designed for private use -- serving one or more
+      newsgroups on your local network or via the internet. Perfect for team discussions, project
+      coordination, or hobbyist communities.
+    </p>
+  </section>
+
+  <section>
+    <h2>🌐 What is Usenet?</h2>
+    <p>
+      Think of it as <strong>Reddit before the Web even existed</strong>.
+      <a href="https://en.wikipedia.org/wiki/Usenet">Usenet</a> is one of the oldest computer
+      network communication systems -- created in 1979, over a decade before the World Wide Web (1991).
+      It consists of newsgroups -- discussion forums organized by topic -- where users post and read
+      messages using NNTP clients (news readers).
+    </p>
+    <p>
+      At its peak in the late 1990s and early 2000s, Usenet hosted over 100,000 newsgroups with
+      millions of active users worldwide. It was the primary forum for technical discussions,
+      academic collaboration, and online communities before web-based forums took over.
+    </p>
+    <p>
+      While public Usenet has declined with the rise of web forums, social media, and platforms
+      like Reddit, the underlying technology remains remarkably robust and useful:
+    </p>
+    <ul style="margin-left: 1.5rem; margin-top: 0.5rem;">
+      <li><strong>Decentralized</strong> -- No single point of failure or control</li>
+      <li><strong>Offline-friendly</strong> -- Clients sync and cache messages locally</li>
+      <li><strong>Threaded discussions</strong> -- Native support for conversation threading</li>
+      <li><strong>Efficient</strong> -- Text-based, low bandwidth, works on any connection</li>
+      <li><strong>Private</strong> -- Run your own server for team/community use</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>✨ Features</h2>
+    <div class="features">
+      <div class="feature">
+        <h3>🔐 Authentication</h3>
+        <p><strong>gonewsd</strong> provides built-in user authentication (SQLite backend) with flexible per-group access controls.</p>
+      </div>
+      <div class="feature">
+        <h3>📧 Mail Gateway</h3>
+        <p>Post messages via email using the built-in mail-to-news gateway.</p>
+      </div>
+      <div class="feature">
+        <h3>📦 Static Binary</h3>
+        <p>Written in Go and statically compiled-runs as a single binary, no external dependencies.</p>
+      </div>
+      <div class="feature">
+        <h3>🐧 Systemd Ready</h3>
+        <p>Includes systemd service template for easy deployment on Linux.</p>
+      </div>
+      <div class="feature">
+        <h3>🖥️ Cross-Platform</h3>
+        <p>Builds for Linux and macOS (amd64 and arm64).</p>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>🚀 Quick Start</h2>
+
+    <h3>Step 1: Get the binaries</h3>
+    <p><strong>📥 Option A:</strong> Download pre-built binaries from the
+      <a href="https://github.com/runableapp/gonewsd/releases">Releases</a> page.
+      Extract the zip file for your platform (Linux or macOS).
+    </p>
+    <p><strong>🔧 Option B:</strong> Build from source:</p>
+    <pre><code>git clone https://github.com/runableapp/gonewsd.git
+cd gonewsd
+task build</code></pre>
+
+    <h3>Step 2: Configure and run</h3>
+    <pre><code># Copy and edit config file
+cp gonewsd.conf /etc/gonewsd.conf
+
+# Create a newsgroup
+./bin/gonewsd -c /etc/gonewsd.conf addgroup -group my.discussion -g rw -o r -desc "My discussion group"
+
+# Start the server
+./bin/gonewsd -c /etc/gonewsd.conf</code></pre>
+
+    <h3>Step 3: Connect</h3>
+    <p>Use your favorite NNTP client (Thunderbird, tin, slrn, etc.) to connect to your server.</p>
+
+    <p style="margin-top: 1.5rem;">For detailed installation instructions, see the
+      <a href="https://github.com/runableapp/gonewsd/blob/main/manuals/INSTALL.md">Installation Guide</a>.
+    </p>
+  </section>
+
+
+  <section>
+    <h2>📚 Documentation</h2>
+    <p>
+      Full documentation is available in the
+      <a href="https://github.com/runableapp/gonewsd/tree/main/manuals">manuals/</a> directory:
+    </p>
+    <ul style="margin-left: 1.5rem; margin-top: 0.5rem;">
+      <li><a href="https://github.com/runableapp/gonewsd/blob/main/manuals/INSTALL.md">INSTALL.md</a> -- Installation and setup</li>
+      <li><a href="https://github.com/runableapp/gonewsd/blob/main/manuals/CONFIGURATION.md">CONFIGURATION.md</a> -- Configuration reference</li>
+      <li><a href="https://github.com/runableapp/gonewsd/blob/main/manuals/ACL_DB.md">ACL_DB.md</a> -- Auth database schema</li>
+    </ul>
+    <p style="margin-top: 1rem;">
+      Run <code>gonewsd help</code> for built-in command reference.
+    </p>
+  </section>
+
+</div>
+
+<footer>
+  <img src="runable-dad-frame-small.webp" alt="Runable.app" style="display: block; margin: 0 auto 1.5rem auto; max-width: 200px;">
+  <p>
+    Copyright &copy; 2026 <a href="https://runable.app">Runable.app</a>.
+    <br>
+    Licensed under <a href="https://github.com/runableapp/gonewsd/blob/main/LICENSE">GPL-3.0</a>.
+  </p>
+</footer>
+
+<script src="script.js"></script>
+
+</body>
+</html>

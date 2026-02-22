@@ -1,0 +1,71 @@
+#!/usr/bin/env bash
+#
+# Copyright © 2026 Runable.app. GPL-3.0.
+#
+# Interactive admin CLI for gonewsd auth: menu-driven wrapper around gonewsd listuser/adduser/.../listgroup.
+set -e
+BINDIR="/usr/local/bin"
+
+GONEWSD_CMD=("$BINDIR/gonewsd")
+if [[ ! -x "$BINDIR/gonewsd" ]]; then
+  echo "Build gonewsd first: go build -o bin/gonewsd ./cmd/gonewsd" >&2
+  exit 1
+fi
+
+# Banner: ASCII art "gonewsd" + version/copyright from gonewsd
+show_banner() {
+  echo ""
+  echo "  ██████╗  ██████╗ ███╗   ██╗███████╗██╗    ██╗███████╗██████╗ "
+  echo " ██╔════╝ ██╔═══██╗████╗  ██║██╔════╝██║    ██║██╔════╝██╔══██╗"
+  echo " ██║  ███╗██║   ██║██╔██╗ ██║█████╗  ██║ █╗ ██║███████╗██║  ██║"
+  echo " ██║   ██║██║   ██║██║╚██╗██║██╔══╝  ██║███╗██║╚════██║██║  ██║"
+  echo " ╚██████╔╝╚██████╔╝██║ ╚████║███████╗╚███╔███╔╝███████║██████╔╝"
+  echo "  ╚═════╝  ╚═════╝ ╚═╝  ╚═══╝╚══════╝ ╚══╝╚══╝ ╚══════╝╚═════╝ "
+  echo ""
+  "${GONEWSD_CMD[@]}" version 2>/dev/null || true
+  echo ""
+}
+
+show_menu() {
+  echo "  1) 👥 listuser   - list users and their groups"
+  echo "  2) ➕ adduser    - add a user (email, password, groups)"
+  echo "  3) 🗑️  deleteuser - remove a user"
+  echo "  4) ✏️  updateuser - update user password or groups"
+  echo "  5) 📰 listgroup  - list groups and permissions"
+  echo "  6) ➕ addgroup   - add a newsgroup"
+  echo "  7) 🗑️  deletegroup - delete or archive a group"
+  echo "  8) ✏️  updategroup - update group permissions or archived"
+  echo ""
+  echo "  m) 📜 show this menu"
+  echo "  q) 👋 quit"
+  echo ""
+}
+
+run_cmd() {
+  local cmd="$1"
+  case "$cmd" in
+    1) "${GONEWSD_CMD[@]}" listuser -format pretty ;;
+    2) "${GONEWSD_CMD[@]}" adduser ;;
+    3) "${GONEWSD_CMD[@]}" deleteuser ;;
+    4) "${GONEWSD_CMD[@]}" updateuser ;;
+    5) "${GONEWSD_CMD[@]}" listgroup -format pretty ;;
+    6) "${GONEWSD_CMD[@]}" addgroup ;;
+    7) "${GONEWSD_CMD[@]}" deletegroup ;;
+    8) "${GONEWSD_CMD[@]}" updategroup ;;
+    m|M) show_menu ; return ;;
+    q|Q) echo "👋 Bye." ; exit 0 ;;
+    "") return ;;
+    *) echo "Unknown option: $cmd" ;;
+  esac
+}
+
+# Short hint for the input prompt (kept on one line)
+PROMPT="🔧 gonewsd (1:list 2:add 3:del 4:upd user | 5:list 6:add 7:del 8:upd group | m q)> "
+
+show_banner
+show_menu
+
+while true; do
+  read -r -p "$PROMPT" input
+  run_cmd "${input}"
+done
