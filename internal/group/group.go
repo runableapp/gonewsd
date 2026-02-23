@@ -645,3 +645,51 @@ func allGroupsRecurse(cfg *config.Config, baseDir, subdir string, names *[]strin
 	}
 }
 
+// DeleteArticle removes an article file and rebuilds the group .info.
+func (g *Group) DeleteArticle(cfg *config.Config, artnum uint64) error {
+	path := article.GetArticlePath(cfg, g.Name, artnum)
+	if err := os.Remove(path); err != nil {
+		return err
+	}
+	return g.BuildInfo(cfg, true)
+}
+
+// WildmatMatch tests whether name matches the wildmat pattern.
+// Supports * (match any characters) and ? (match one character).
+func WildmatMatch(pattern, name string) bool {
+	return doWildmat(pattern, name)
+}
+
+func doWildmat(pattern, name string) bool {
+	for len(pattern) > 0 {
+		switch pattern[0] {
+		case '*':
+			for len(pattern) > 0 && pattern[0] == '*' {
+				pattern = pattern[1:]
+			}
+			if len(pattern) == 0 {
+				return true
+			}
+			for i := 0; i <= len(name); i++ {
+				if doWildmat(pattern, name[i:]) {
+					return true
+				}
+			}
+			return false
+		case '?':
+			if len(name) == 0 {
+				return false
+			}
+			pattern = pattern[1:]
+			name = name[1:]
+		default:
+			if len(name) == 0 || pattern[0] != name[0] {
+				return false
+			}
+			pattern = pattern[1:]
+			name = name[1:]
+		}
+	}
+	return len(name) == 0
+}
+

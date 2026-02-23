@@ -69,6 +69,19 @@ When **auth.db** is set, gonewsd uses SQLite for users and group ACLs. Manage wi
 |-----------|---------|-------------|
 | **PidFile** | (empty; disabled) | Path where gonewsd writes its process ID (one line, number). Used so tools (e.g. admin CLI) can send SIGHUP to trigger auth reload. Optional; use **-** or leave unset to disable. Must be writable by **User**. |
 
+## 🔒 TLS (optional)
+
+| Directive | Default | Description |
+|-----------|---------|-------------|
+| **tls.cert** | (empty; TLS disabled) | Path to TLS certificate file (PEM format). When both **tls.cert** and **tls.key** are set, the server advertises STARTTLS in CAPABILITIES and accepts the STARTTLS command to upgrade connections. |
+| **tls.key** | (empty; TLS disabled) | Path to TLS private key file (PEM format). Required with **tls.cert**. |
+
+Example:
+```
+tls.cert    /etc/gonewsd/server.crt
+tls.key     /etc/gonewsd/server.key
+```
+
 ## ⚠️ Deprecated / compatibility
 
 - **LogFile** -- deprecated; use **ErrorLog**.

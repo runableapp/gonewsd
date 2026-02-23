@@ -132,6 +132,32 @@ SUPPORTED NEWS READERS
   Tested with Thunderbird, tin, and other NNTP clients. Should work
   with most NNTP news readers.
 
+NNTP PROTOCOL SUPPORT
+  In addition to the core commands (ARTICLE, HEAD, BODY, STAT, GROUP,
+  POST, NEXT, QUIT, HELP, DATE, LIST, LISTGROUP, XOVER, NEWGROUPS,
+  MODE READER, AUTHINFO USER/PASS/SIMPLE), gonewsd also supports:
+
+  LAST            Navigate to the previous article.
+  CAPABILITIES    RFC 3977 capability discovery.
+  OVER [range]    RFC 3977 overview (same as XOVER).
+  HDR field [range|<msgid>]
+                  RFC 3977 header retrieval (same as XHDR).
+  XHDR field [range|<msgid>]
+                  Retrieve a specific header field from articles.
+  NEWNEWS wildmat date time [GMT]
+                  List message IDs of articles posted after a date.
+  NEWGROUPS       Now correctly filters by date (RFC 3977).
+  LIST ACTIVE [wildmat]
+                  Supports wildmat pattern matching.
+  LISTGROUP [group [range]]
+                  Supports article range argument.
+  CANCEL          Control: cancel <message-id> in a POST deletes the
+                  original article if From: matches.
+  STARTTLS        Upgrade connection to TLS (requires tls.cert and
+                  tls.key in config).
+  COMPRESS DEFLATE
+                  RFC 8054 connection compression.
+
 AUTHORS
   vibecoding@runable.app (gonewsd)
   Runable.app

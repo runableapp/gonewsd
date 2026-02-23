@@ -214,7 +214,7 @@ Once a new group is created, any news clients should immediately be able to subs
 
 You can also create group directories and `.config` files manually; see bootscripts or existing spool layout for `.config` format (description, creator, postlimit, ccpost, replyto, voidemail). Posting is controlled by auth/ACL, not by `.config`.
 
-## 📧 MAIL GATEWAY
+## 📧 MAIL GATEWAY (not tested)
 
 Email messages can be injected into the gonewsd groups
 using e.g.
@@ -246,14 +246,88 @@ For more detailed documentation, see the [manuals/](manuals/) directory:
 - [ACL_DB.md](manuals/ACL_DB.md) -- Auth database schema
 - [CONFIG-COMPAT.md](manuals/CONFIG-COMPAT.md) -- newsd compatibility notes
 
+## 🆕 Improvements over newsd
+
+**Authentication and access control:**
+- Multi-user SQLite authentication (vs single-user plaintext)
+- Per-group ACL (group_perm / world_perm)
+- Group metadata fields (description, creator, postlimit, ccpost, replyto, voidemail)
+- Auth logging (auth.log)
+- AUTHINFO SIMPLE (legacy auth support)
+
+**NNTP protocol features not in `newsd`:**
+- CAPABILITIES (RFC 3977 mandatory discovery)
+- LAST (backward article navigation)
+- CANCEL (article deletion via control messages, with From: validation)
+- OVER / HDR (RFC 3977 standard replacements for XOVER / XHDR)
+- XHDR (header field retrieval by range or message-ID)
+- NEWNEWS (list new articles since a date)
+- NEWGROUPS date filtering (correctly filters by creation time)
+- LIST ACTIVE wildmat pattern matching
+- LIST HEADERS
+- LISTGROUP range argument
+- XPAT (RFC 2980 -- pattern matching against header fields)
+- LIST COUNTS / LIST DISTRIBUTIONS / LIST DISTRIB.PATS
+- STARTTLS (TLS connection upgrade, RFC 4642)
+- COMPRESS DEFLATE (connection compression, RFC 8054)
+
+**Security and reliability:**
+- Input validation (group names, email addresses, post size limits)
+- PostCommand executed without shell (prevents injection)
+- Path traversal and header injection protections
+
+
+## 🔒 TLS (STARTTLS)
+
+gonewsd supports STARTTLS (RFC 4642) to upgrade plaintext connections to TLS.
+To enable it, add `tls.cert` and `tls.key` to your config file pointing to
+PEM-format certificate and key files:
+
+    tls.cert  /etc/gonewsd/server.crt
+    tls.key   /etc/gonewsd/server.key
+
+When both are set, the server advertises STARTTLS in CAPABILITIES and clients
+can issue the STARTTLS command to upgrade. If not configured, the server
+responds `580 TLS not available`.
+
+You can generate a self-signed certificate for testing with:
+
+    openssl req -x509 -newkey rsa:2048 -keyout server.key -out server.crt \
+        -days 365 -nodes -subj "/CN=localhost"
+
+See [manuals/CONFIGURATION.md](manuals/CONFIGURATION.md) for details.
+
+**Note:** STARTTLS has not been tested end-to-end with a real NNTP client.
+
+## 🗜️ COMPRESS DEFLATE
+
+gonewsd supports COMPRESS DEFLATE (RFC 8054) to compress data on the
+connection after negotiation. Clients that support it can send
+`COMPRESS DEFLATE` after connecting, and all subsequent traffic is
+compressed in both directions using zlib/DEFLATE.
+
+This is always available -- no configuration required. The server advertises
+it in CAPABILITIES and LIST EXTENSIONS.
+
+**Note:** COMPRESS DEFLATE has not been tested end-to-end with a real NNTP client.
+
 ## ⚠️ LIMITATIONS
 
 By design, gonewsd does NOT manage Usenet news feeds. It acts as a
-private news server only. Feeding news to or from other servers is
-not implemented.
+private news server only. There is no way to constrain posting or
+readership by IP or domain.
 
-Some NNTP commands may not be supported. There is no way to constrain
-posting or readership by IP or domain. Use at your own risk.
+**Not implemented (by design -- not a news feed):**
+- IHAVE (RFC 977, 3977) -- peer article transfer
+- CHECK / TAKETHIS (RFC 3977) -- streaming article transfer
+- MODE STREAM (RFC 3977) -- streaming mode
+- XREPLIC (legacy) -- article replication
+
+**Not implemented (deprecated):**
+- AUTHINFO GENERIC (RFC 4643) -- deprecated; returns 501 with notice to use AUTHINFO USER/PASS
+
+See [notes/NNTP-UNIMPLEMENTED.md](notes/NNTP-UNIMPLEMENTED.md) for
+the full protocol implementation status.
 
 
 ## 🐛 REPORTING BUGS
@@ -265,12 +339,12 @@ https://github.com/runableapp/gonewsd/issues
 
 ## 📄 LICENSING
 
-![runable-dad-frame-small](https://github.com/user-attachments/assets/22de0187-eee8-46b2-aad0-3a34f9ad7cb3)
+<img src="https://github.com/user-attachments/assets/22de0187-eee8-46b2-aad0-3a34f9ad7cb3" alt="runable-dad-frame-small" width="180">
 
 
 Copyright © 2026 Runable.app. GPL-3.0.
 
-Gonewsd is free software under the GNU General Public License v2.
+Gonewsd is free software under the GNU General Public License v3.
 See the LICENSE file for full terms.
 
 ### CREDIT

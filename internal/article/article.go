@@ -282,3 +282,52 @@ func (a *Article) Overview(overviewFormat []string) string {
 	}
 	return b.String()
 }
+
+// GetRawHeader reads an article file and returns the value of the given header field.
+// Field name matching is case-insensitive. Returns empty string if not found.
+func GetRawHeader(cfg *config.Config, group string, artnum uint64, field string) string {
+	path := GetArticlePath(cfg, group, artnum)
+	f, err := os.Open(path)
+	if err != nil {
+		return ""
+	}
+	defer f.Close()
+
+	target := strings.ToLower(field)
+	if !strings.HasSuffix(target, ":") {
+		target += ":"
+	}
+
+	scanner := bufio.NewScanner(f)
+	buf := make([]byte, 0, 64*1024)
+	scanner.Buffer(buf, lineLen*2)
+
+	var val string
+	var matched bool
+	for scanner.Scan() {
+		line := scanner.Text()
+		if i := strings.IndexAny(line, "\r\n"); i >= 0 {
+			line = line[:i]
+		}
+		if line == "" {
+			break
+		}
+		if len(line) > 0 && (line[0] == ' ' || line[0] == '\t') {
+			if matched {
+				val += " " + strings.TrimSpace(line)
+			}
+			continue
+		}
+		if matched {
+			return val
+		}
+		if len(line) >= len(target) && strings.ToLower(line[:len(target)]) == target {
+			val = strings.TrimSpace(line[len(target):])
+			matched = true
+		}
+	}
+	if matched {
+		return val
+	}
+	return ""
+}

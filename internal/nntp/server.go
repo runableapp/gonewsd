@@ -8,9 +8,12 @@
 package nntp
 
 import (
+	"compress/flate"
+	"crypto/tls"
 	"fmt"
 	"io"
 	"net"
+	"os"
 	"strconv"
 	"strings"
 	"sync"
@@ -68,11 +71,37 @@ type Server struct {
 	clients   int64
 	connMu    sync.Mutex
 	conns     map[net.Conn]struct{}
+	tlsConfig *tls.Config
 }
 
 // NewServer creates a new NNTP server. authStore may be nil (all access allowed).
 func NewServer(cfg *config.Config, log *logging.Logger, authStore *auth.Store) *Server {
-	return &Server{cfg: cfg, log: log, authStore: authStore, conns: make(map[net.Conn]struct{})}
+	s := &Server{cfg: cfg, log: log, authStore: authStore, conns: make(map[net.Conn]struct{})}
+	if cfg.TLSCert != "" && cfg.TLSKey != "" {
+		cert, err := tls.LoadX509KeyPair(cfg.TLSCert, cfg.TLSKey)
+		if err != nil {
+			log.Log(config.LogError, "TLS: failed to load cert/key: %v", err)
+		} else {
+			s.tlsConfig = &tls.Config{Certificates: []tls.Certificate{cert}}
+		}
+	}
+	return s
+}
+
+// compressedConn wraps a net.Conn with DEFLATE compression (RFC 8054).
+type compressedConn struct {
+	net.Conn
+	r io.Reader
+	w *flate.Writer
+}
+
+func (c *compressedConn) Read(p []byte) (int, error)  { return c.r.Read(p) }
+func (c *compressedConn) Write(p []byte) (int, error) {
+	n, err := c.w.Write(p)
+	if err != nil {
+		return n, err
+	}
+	return n, c.w.Flush()
 }
 
 // SetAuthStore sets the auth store (e.g. after SIGHUP reload). May be nil.
@@ -181,12 +210,13 @@ func (s *Server) Serve() error {
 }
 
 // handleConn runs the NNTP command loop for one client: reads lines, dispatches commands, sends responses.
-func (s *Server) handleConn(conn net.Conn) {
-	remoteAddr := conn.RemoteAddr().String()
+func (s *Server) handleConn(rawConn net.Conn) {
+	conn := rawConn // may be replaced by STARTTLS or COMPRESS
+	remoteAddr := rawConn.RemoteAddr().String()
 	defer func() {
 		s.log.Log(config.LogInfo, "Connection from %s closed", remoteAddr)
 		s.connMu.Lock()
-		delete(s.conns, conn)
+		delete(s.conns, rawConn)
 		s.connMu.Unlock()
 		atomic.AddInt64(&s.clients, -1)
 		conn.Close()
@@ -307,10 +337,56 @@ func (s *Server) handleConn(conn net.Conn) {
 				}
 				authUser = ""
 			case "GENERIC":
-				s.send(conn, "501 'AUTHINFO GENERIC' not supported")
+				s.send(conn, "501 AUTHINFO GENERIC is deprecated (RFC 4643); use AUTHINFO USER/PASS")
 			default:
 				s.send(conn, "501 Bad or unknown argument")
 			}
+
+		case "CAPABILITIES":
+			s.send(conn, "101 Capability list:")
+			s.send(conn, "VERSION 2")
+			s.send(conn, "READER")
+			s.send(conn, "POST")
+			s.send(conn, "LIST ACTIVE NEWSGROUPS OVERVIEW.FMT ACTIVE.TIMES SUBSCRIPTIONS HEADERS")
+			s.send(conn, "OVER")
+			s.send(conn, "HDR")
+			if s.authStore != nil {
+				s.send(conn, "AUTHINFO USER")
+			}
+			if s.tlsConfig != nil {
+				s.send(conn, "STARTTLS")
+			}
+			s.send(conn, "COMPRESS DEFLATE")
+			s.send(conn, ".")
+
+		case "STARTTLS":
+			if s.tlsConfig == nil {
+				s.send(conn, "580 TLS not available")
+				continue
+			}
+			s.send(conn, "382 Continue with TLS negotiation")
+			tlsConn := tls.Server(conn, s.tlsConfig)
+			if err := tlsConn.Handshake(); err != nil {
+				s.log.Log(config.LogError, "STARTTLS handshake failed from %s: %v", remoteAddr, err)
+				return
+			}
+			s.log.Log(config.LogInfo, "STARTTLS completed from %s", remoteAddr)
+			conn = tlsConn
+
+		case "COMPRESS":
+			if strings.ToUpper(arg1) != "DEFLATE" {
+				s.send(conn, "501 Only DEFLATE is supported")
+				continue
+			}
+			s.send(conn, "206 Compression active")
+			fw, err := flate.NewWriter(conn, flate.DefaultCompression)
+			if err != nil {
+				s.log.Log(config.LogError, "COMPRESS init failed from %s: %v", remoteAddr, err)
+				return
+			}
+			fr := flate.NewReader(conn)
+			conn = &compressedConn{Conn: conn, r: fr, w: fw}
+			s.log.Log(config.LogInfo, "COMPRESS DEFLATE active from %s", remoteAddr)
 
 		case "CHECK", "TAKETHIS":
 			s.send(conn, "400 not accepting articles - we are not a news feed")
@@ -327,15 +403,21 @@ func (s *Server) handleConn(conn net.Conn) {
 			s.send(conn, "500 What?")
 
 		case "LIST":
-			// newsd: "LIST ACTIVE <wildmat>" -> 501 wildmats not supported
-			if strings.ToUpper(arg1) == "ACTIVE" && arg2 != "" {
-				s.send(conn, "501 LIST ACTIVE <wildmat>: wildmats not supported")
-				continue
-			}
 			namesForList := s.listGroups(session)
-			switch strings.ToUpper(arg1) {
+			listArg1 := strings.ToUpper(arg1)
+			// Apply wildmat filter for LIST ACTIVE <wildmat>
+			if listArg1 == "ACTIVE" && arg2 != "" {
+				var filtered []string
+				for _, n := range namesForList {
+					if group.WildmatMatch(arg2, n) {
+						filtered = append(filtered, n)
+					}
+				}
+				namesForList = filtered
+			}
+			switch listArg1 {
 			case "EXTENSIONS":
-				s.send(conn, "202 Extensions supported:\r\nLISTGROUP\r\nMODE\r\nXREPLIC\r\nXOVER\r\nDATE\r\n.")
+				s.send(conn, "202 Extensions supported:\r\nLISTGROUP\r\nMODE\r\nXOVER\r\nOVER\r\nHDR\r\nDATE\r\nCOMPRESS DEFLATE\r\n.")
 			case "ACTIVE", "":
 				s.send(conn, "215 list of newsgroups follows")
 				for _, name := range namesForList {
@@ -357,8 +439,12 @@ func (s *Server) handleConn(conn net.Conn) {
 					s.send(conn, fmt.Sprintf("%s %d %s", g.Name, g.Ctime, g.Creator))
 				}
 				s.send(conn, ".")
-			case "DISTRIBUTIONS", "DISTRIB.PATS":
-				s.send(conn, "503 Not implemented on this server")
+			case "DISTRIBUTIONS":
+				s.send(conn, "215 Distributions follow")
+				s.send(conn, ".")
+			case "DISTRIB.PATS":
+				s.send(conn, "215 Distribution patterns follow")
+				s.send(conn, ".")
 			case "NEWSGROUPS":
 				s.send(conn, "215 information follows")
 				for _, name := range namesForList {
@@ -379,22 +465,38 @@ func (s *Server) handleConn(conn net.Conn) {
 				s.send(conn, "215 information follows")
 				s.send(conn, "rush.general") // newsd HACK: TBD
 				s.send(conn, ".")
+			case "HEADERS":
+				s.send(conn, "215 Header and metadata item names follow")
+				s.send(conn, ":")
+				s.send(conn, ".")
+			case "COUNTS":
+				s.send(conn, "215 Group counts follow")
+				for _, name := range namesForList {
+					var g group.Group
+					if g.LoadInfoFull(s.cfg, name, s.log) != nil {
+						continue
+					}
+					s.send(conn, fmt.Sprintf("%s %d %d %d y", g.Name, g.End, g.Start, g.Total))
+				}
+				s.send(conn, ".")
 			default:
 				s.send(conn, "501 Syntax error")
 			}
 
 		case "LISTGROUP":
-			if arg1 != "" {
-				if !auth.ValidGroupName(arg1) {
+			lgGroup := arg1
+			lgRange := arg2
+			if lgGroup != "" {
+				if !auth.ValidGroupName(lgGroup) {
 					s.send(conn, "501 invalid group name")
 					continue
 				}
 				var g group.Group
-				if g.LoadInfoFull(s.cfg, arg1, s.log) != nil {
+				if g.LoadInfoFull(s.cfg, lgGroup, s.log) != nil {
 					s.send(conn, fmt.Sprintf("411 No such newsgroup: %s", g.Errmsg))
 					continue
 				}
-				if !s.canRead(session, arg1, true) {
+				if !s.canRead(session, lgGroup, true) {
 					s.send(conn, "480 Authentication required")
 					continue
 				}
@@ -409,16 +511,73 @@ func (s *Server) handleConn(conn net.Conn) {
 				s.send(conn, "480 Authentication required")
 				continue
 			}
-			s.send(conn, "211 list of article numbers follow")
-			for n := curGroup.Start; n <= curGroup.End; n++ {
-				s.send(conn, strconv.FormatUint(n, 10))
+			lgStart, lgEnd := curGroup.Start, curGroup.End
+			if lgRange != "" {
+				parseArticleRange(lgRange, curGroup.Start, curGroup.End, &lgStart, &lgEnd)
+			}
+			s.send(conn, fmt.Sprintf("211 %d %d %d %s list follows", curGroup.Total, curGroup.Start, curGroup.End, curGroup.Name))
+			for n := lgStart; n <= lgEnd; n++ {
+				if _, err := os.Stat(article.GetArticlePath(s.cfg, curGroup.Name, n)); err == nil {
+					s.send(conn, strconv.FormatUint(n, 10))
+				}
+			}
+			s.send(conn, ".")
+
+		case "XPAT":
+			if !curGroup.Valid {
+				s.send(conn, "412 Not in a newsgroup")
+				continue
+			}
+			if !s.canRead(session, curGroup.Name, true) {
+				s.send(conn, "480 Authentication required")
+				continue
+			}
+			if arg1 == "" || arg2 == "" {
+				s.send(conn, "501 Syntax: XPAT header range|<msgid> pat [pat...]")
+				continue
+			}
+			xpatField := arg1
+			xpatRest := strings.SplitN(arg2, " ", 2)
+			xpatRange := xpatRest[0]
+			xpatPattern := ""
+			if len(xpatRest) > 1 {
+				xpatPattern = xpatRest[1]
+			}
+			if xpatPattern == "" {
+				s.send(conn, "501 Syntax: XPAT header range|<msgid> pat [pat...]")
+				continue
+			}
+			sart, eart := curGroup.Start, curGroup.End
+			if len(xpatRange) > 0 && xpatRange[0] == '<' {
+				artnum, findErr := curGroup.FindArticleByMessageID(s.cfg, xpatRange)
+				if findErr != nil {
+					s.send(conn, "430 no such article found")
+					continue
+				}
+				sart, eart = artnum, artnum
+			} else {
+				parseArticleRange(xpatRange, curGroup.Start, curGroup.End, &sart, &eart)
+			}
+			patterns := strings.Fields(xpatPattern)
+			s.send(conn, "221 Header follows")
+			for n := sart; n <= eart; n++ {
+				val := article.GetRawHeader(s.cfg, curGroup.Name, n, xpatField)
+				if val == "" {
+					continue
+				}
+				for _, pat := range patterns {
+					if group.WildmatMatch(pat, val) {
+						s.send(conn, fmt.Sprintf("%d %s", n, val))
+						break
+					}
+				}
 			}
 			s.send(conn, ".")
 
 		case "XREPLIC":
 			s.send(conn, "437 'xreplic' not implemented on this server")
 
-		case "XOVER":
+		case "XOVER", "OVER":
 			if !curGroup.Valid {
 				s.send(conn, "412 Not in a newsgroup")
 				continue
@@ -429,32 +588,7 @@ func (s *Server) handleConn(conn net.Conn) {
 			}
 			sart, eart := curGroup.Start, curGroup.End
 			if arg1 != "" {
-				if n, _ := fmt.Sscanf(arg1, "%d-%d", &sart, &eart); n >= 1 {
-					if n == 1 {
-						eart = curGroup.End
-					}
-				} else if n, _ := fmt.Sscanf(arg1, "%d-", &sart); n == 1 {
-					eart = curGroup.End
-				} else {
-					var single uint64
-					fmt.Sscanf(arg1, "%d", &single)
-					sart, eart = single, single
-				}
-			}
-			if sart < curGroup.Start {
-				sart = curGroup.Start
-			}
-			if sart > curGroup.End {
-				sart = curGroup.End
-			}
-			if eart < curGroup.Start {
-				eart = curGroup.Start
-			}
-			if eart > curGroup.End {
-				eart = curGroup.End
-			}
-			if sart > eart {
-				sart = eart
+				parseArticleRange(arg1, curGroup.Start, curGroup.End, &sart, &eart)
 			}
 			s.send(conn, "224 overview follows")
 			for n := sart; n <= eart; n++ {
@@ -463,6 +597,43 @@ func (s *Server) handleConn(conn net.Conn) {
 					continue
 				}
 				s.send(conn, a.Overview(OverviewFormat))
+			}
+			s.send(conn, ".")
+
+		case "XHDR", "HDR":
+			if !curGroup.Valid {
+				s.send(conn, "412 Not in a newsgroup")
+				continue
+			}
+			if !s.canRead(session, curGroup.Name, true) {
+				s.send(conn, "480 Authentication required")
+				continue
+			}
+			if arg1 == "" {
+				s.send(conn, "501 Header field name required")
+				continue
+			}
+			hdrField := arg1
+			hdrRange := arg2
+			sart, eart := curGroup.Start, curGroup.End
+			if hdrRange != "" {
+				if len(hdrRange) > 0 && hdrRange[0] == '<' {
+					artnum, findErr := curGroup.FindArticleByMessageID(s.cfg, hdrRange)
+					if findErr != nil {
+						s.send(conn, "430 no such article found")
+						continue
+					}
+					sart, eart = artnum, artnum
+				} else {
+					parseArticleRange(hdrRange, curGroup.Start, curGroup.End, &sart, &eart)
+				}
+			}
+			s.send(conn, "225 Header information follows")
+			for n := sart; n <= eart; n++ {
+				val := article.GetRawHeader(s.cfg, curGroup.Name, n, hdrField)
+				if val != "" {
+					s.send(conn, fmt.Sprintf("%d %s", n, val))
+				}
 			}
 			s.send(conn, ".")
 
@@ -490,50 +661,91 @@ func (s *Server) handleConn(conn net.Conn) {
 
 		case "HELP":
 			s.send(conn, "100 help text follows")
-			s.send(conn, "CHECK\r\n"+
-				"TAKETHIS\r\n"+
-				"MODE [stream|reader]\r\n"+
-				"LIST [active|active.times|distributions|distrib.pats|newsgroups|overview.fmt|subscriptions]\r\n"+
-				"LISTGROUP [newsgroup]\r\n"+
-				"XREPLIC\r\n"+
-				"XOVER [msg#|msg#-|msg#-msg#]\r\n"+
-				"GROUP newsgroup\r\n"+
-				"HELP\r\n"+
-				"NEWGROUPS [YY]yymmdd hhmmss [GMT|UTC] [distributions]\r\n"+
-				"NEWNEWS\r\n"+
-				"NEXT\r\n"+
-				"HEAD [msg#|<msgid>]\r\n"+
-				"BODY [msg#|<msgid>]\r\n"+
-				"ARTICLE [msg#|<msgid>]\r\n"+
+			s.send(conn, "ARTICLE [msg#|<msgid>]\r\n"+
 				"AUTHINFO [user|pass] <value>\r\n"+
 				"AUTHINFO simple\r\n"+
-				"STAT [msg#|<msgid>]\r\n"+
-				"POST\r\n"+
+				"BODY [msg#|<msgid>]\r\n"+
+				"CAPABILITIES\r\n"+
+				"COMPRESS DEFLATE\r\n"+
 				"DATE\r\n"+
+				"GROUP newsgroup\r\n"+
+				"HDR field [range|<msgid>]\r\n"+
+				"HEAD [msg#|<msgid>]\r\n"+
+				"HELP\r\n"+
+				"LAST\r\n"+
+				"LIST [active [wildmat]|active.times|counts|newsgroups|overview.fmt|headers|distributions|distrib.pats|subscriptions]\r\n"+
+				"LISTGROUP [newsgroup [range]]\r\n"+
+				"MODE reader\r\n"+
+				"NEWGROUPS [YY]yymmdd hhmmss [GMT|UTC]\r\n"+
+				"NEWNEWS wildmat [YY]yymmdd hhmmss [GMT|UTC]\r\n"+
+				"NEXT\r\n"+
+				"OVER [range]\r\n"+
+				"POST\r\n"+
 				"QUIT\r\n"+
+				"STARTTLS\r\n"+
+				"STAT [msg#|<msgid>]\r\n"+
+				"XHDR field [range|<msgid>]\r\n"+
+				"XOVER [range]\r\n"+
+				"XPAT header range|<msgid> pat [pat...]\r\n"+
 				".")
 		case "NEWGROUPS":
-			// newsd: NEWGROUPS <YYMMDD> <HHMMSS> - both must be 6 chars
-			if len(arg1) != 6 || len(arg2) != 6 {
+			checkTime, err := parseNNTPDateTime(arg1, arg2)
+			if err != nil {
 				s.send(conn, "501 Bad or missing date/time arguments")
-				continue
-			}
-			var year, mon, day, hour, min, sec int
-			if n1, _ := fmt.Sscanf(arg1, "%2d%2d%2d", &year, &mon, &day); n1 != 3 {
-				s.send(conn, "501 Bad date/time argument")
-				continue
-			}
-			if n2, _ := fmt.Sscanf(arg2, "%2d%2d%2d", &hour, &min, &sec); n2 != 3 {
-				s.send(conn, "501 Bad date/time argument")
 				continue
 			}
 			s.send(conn, "231 list of new newsgroups follows")
 			for _, name := range s.listGroups(session) {
-				s.send(conn, name)
+				var g group.Group
+				if g.LoadInfoFull(s.cfg, name, s.log) != nil {
+					continue
+				}
+				if g.Ctime >= checkTime.Unix() {
+					s.send(conn, name)
+				}
 			}
 			s.send(conn, ".")
+
 		case "NEWNEWS":
-			s.send(conn, "501 Command not implemented on server")
+			if arg1 == "" || arg2 == "" {
+				s.send(conn, "501 Syntax: NEWNEWS wildmat date time [GMT]")
+				continue
+			}
+			nwPat := arg1
+			nwFields := strings.Fields(arg2)
+			if len(nwFields) < 2 {
+				s.send(conn, "501 Bad date/time arguments")
+				continue
+			}
+			checkTime, err := parseNNTPDateTime(nwFields[0], nwFields[1])
+			if err != nil {
+				s.send(conn, "501 Bad date/time arguments")
+				continue
+			}
+			s.send(conn, "230 list of new articles follows")
+			for _, name := range s.listGroups(session) {
+				if !group.WildmatMatch(nwPat, name) {
+					continue
+				}
+				var g group.Group
+				if g.LoadInfoFull(s.cfg, name, s.log) != nil {
+					continue
+				}
+				for n := g.Start; n <= g.End; n++ {
+					path := article.GetArticlePath(s.cfg, name, n)
+					fi, ferr := os.Stat(path)
+					if ferr != nil {
+						continue
+					}
+					if fi.ModTime().After(checkTime) {
+						msgid, merr := g.GetMessageID(s.cfg, n)
+						if merr == nil {
+							s.send(conn, msgid)
+						}
+					}
+				}
+			}
+			s.send(conn, ".")
 		case "NEXT":
 			if !curGroup.Valid {
 				s.send(conn, "412 no newsgroup selected")
@@ -560,6 +772,33 @@ func (s *Server) handleConn(conn net.Conn) {
 				continue
 			}
 			s.send(conn, fmt.Sprintf("223 %d %s article retrieved - request text separately", next, curArticle.MessageID))
+
+		case "LAST":
+			if !curGroup.Valid {
+				s.send(conn, "412 no newsgroup selected")
+				continue
+			}
+			if !s.canRead(session, curGroup.Name, true) {
+				s.send(conn, "480 Authentication required")
+				continue
+			}
+			if !curArticle.Valid {
+				s.send(conn, "420 no article has been selected")
+				continue
+			}
+			if curArticle.Number <= curGroup.Start {
+				s.send(conn, "422 no previous article in this group")
+				continue
+			}
+			prev := curArticle.Number - 1
+			restoreArt := curArticle
+			if err := curArticle.Load(s.cfg, curGroup.Name, prev); err != nil {
+				errmsg := curArticle.Errmsg
+				curArticle = restoreArt
+				s.send(conn, fmt.Sprintf("422 error retrieving article %d: %s", prev, errmsg))
+				continue
+			}
+			s.send(conn, fmt.Sprintf("223 %d %s article retrieved - request text separately", prev, curArticle.MessageID))
 
 		case "HEAD", "BODY", "ARTICLE", "STAT":
 			if !curGroup.Valid {
@@ -636,6 +875,18 @@ func (s *Server) handleConn(conn net.Conn) {
 			// Debug: log raw bytes of POST body to diagnose UTF-8 issues (debug level only)
 			s.log.Log(config.LogDebug, "POST body length=%d first100bytes=%q", len(msg), truncateForLog(msg, 100))
 			headers, body := group.ParseArticle(msg)
+
+			// CANCEL control message: Control: cancel <message-id>
+			controlVal, hasControl := group.GetHeaderValue(headers, "Control:")
+			if hasControl {
+				controlLower := strings.ToLower(strings.TrimSpace(controlVal))
+				if strings.HasPrefix(controlLower, "cancel ") {
+					cancelMsgID := strings.TrimSpace(controlVal[7:])
+					s.handleCancel(conn, headers, cancelMsgID, session, remoteAddr)
+					continue
+				}
+			}
+
 			postgroup, hasGroup := group.GetHeaderValue(headers, "Newsgroups:")
 			if !hasGroup || postgroup == "" {
 				s.send(conn, "441 article has no Newsgroups field")
@@ -773,6 +1024,119 @@ func countPostLines(msg string) int {
 
 // maxPostSize is the maximum POST body size (10 MB). Prevents memory exhaustion from oversized posts.
 const maxPostSize = 10 * 1024 * 1024
+
+// parseNNTPDateTime parses NNTP date/time strings (YYMMDD or YYYYMMDD + HHMMSS).
+func parseNNTPDateTime(dateStr, timeStr string) (time.Time, error) {
+	if len(timeStr) < 6 {
+		return time.Time{}, fmt.Errorf("bad time")
+	}
+	// Strip trailing GMT/UTC keywords if present in timeStr
+	timePart := strings.Fields(timeStr)[0]
+	if len(timePart) < 6 {
+		return time.Time{}, fmt.Errorf("bad time")
+	}
+	var year, mon, day, hour, min, sec int
+	switch len(dateStr) {
+	case 6:
+		if n, _ := fmt.Sscanf(dateStr, "%2d%2d%2d", &year, &mon, &day); n != 3 {
+			return time.Time{}, fmt.Errorf("bad date")
+		}
+		if year >= 70 {
+			year += 1900
+		} else {
+			year += 2000
+		}
+	case 8:
+		if n, _ := fmt.Sscanf(dateStr, "%4d%2d%2d", &year, &mon, &day); n != 3 {
+			return time.Time{}, fmt.Errorf("bad date")
+		}
+	default:
+		return time.Time{}, fmt.Errorf("bad date length")
+	}
+	if n, _ := fmt.Sscanf(timePart, "%2d%2d%2d", &hour, &min, &sec); n != 3 {
+		return time.Time{}, fmt.Errorf("bad time")
+	}
+	return time.Date(year, time.Month(mon), day, hour, min, sec, 0, time.UTC), nil
+}
+
+// parseArticleRange parses an article range string (N, N-, N-M) and clamps to group bounds.
+func parseArticleRange(rangeStr string, gStart, gEnd uint64, sart, eart *uint64) {
+	if strings.Contains(rangeStr, "-") {
+		if n, _ := fmt.Sscanf(rangeStr, "%d-%d", sart, eart); n == 2 {
+			// N-M
+		} else if n, _ := fmt.Sscanf(rangeStr, "%d-", sart); n == 1 {
+			// N-
+			*eart = gEnd
+		}
+	} else {
+		var single uint64
+		fmt.Sscanf(rangeStr, "%d", &single)
+		*sart, *eart = single, single
+	}
+	if *sart < gStart {
+		*sart = gStart
+	}
+	if *sart > gEnd {
+		*sart = gEnd
+	}
+	if *eart < gStart {
+		*eart = gStart
+	}
+	if *eart > gEnd {
+		*eart = gEnd
+	}
+	if *sart > *eart {
+		*sart = *eart
+	}
+}
+
+// handleCancel processes a CANCEL control message: validates the canceller and deletes the article.
+func (s *Server) handleCancel(conn net.Conn, headers []string, cancelMsgID string, session *auth.Session, remoteAddr string) {
+	postgroup, hasGroup := group.GetHeaderValue(headers, "Newsgroups:")
+	if !hasGroup || postgroup == "" {
+		s.send(conn, "441 cancel: no Newsgroups header")
+		return
+	}
+	if !auth.ValidGroupName(postgroup) {
+		s.send(conn, "441 cancel: invalid group name")
+		return
+	}
+	if !s.canPost(session, postgroup, true) {
+		s.log.LogAuth("cancel denied group=%q user=%q from %s", postgroup, sessionUsername(session), remoteAddr)
+		s.send(conn, "480 Authentication required")
+		return
+	}
+
+	var g group.Group
+	if g.LoadInfoFull(s.cfg, postgroup, s.log) != nil {
+		s.send(conn, fmt.Sprintf("441 cancel: %s", g.Errmsg))
+		return
+	}
+
+	artnum, err := g.FindArticleByMessageID(s.cfg, cancelMsgID)
+	if err != nil {
+		s.send(conn, "441 cancel: article not found")
+		return
+	}
+
+	// Validate From: matches the original article's From:
+	cancelFrom, _ := group.GetHeaderValue(headers, "From:")
+	origFrom := article.GetRawHeader(s.cfg, postgroup, artnum, "From")
+	if cancelFrom == "" || origFrom == "" || !strings.EqualFold(strings.TrimSpace(cancelFrom), strings.TrimSpace(origFrom)) {
+		s.log.LogAuth("cancel rejected msgid=%s group=%q user=%q from %s (From mismatch)", cancelMsgID, postgroup, sessionUsername(session), remoteAddr)
+		s.send(conn, "441 cancel: permission denied (From does not match)")
+		return
+	}
+
+	if err := g.DeleteArticle(s.cfg, artnum); err != nil {
+		s.log.Log(config.LogError, "cancel: delete article %d in %s: %v", artnum, postgroup, err)
+		s.send(conn, "441 cancel: failed to delete article")
+		return
+	}
+
+	s.log.LogAuth("cancel ok msgid=%s group=%q artnum=%d user=%q from %s", cancelMsgID, postgroup, artnum, sessionUsername(session), remoteAddr)
+	s.send(conn, "240 Article cancelled successfully")
+}
 
 // readPostBodyRaw reads the POST body one byte at a time from the raw connection
 // (same as newsd C: while (read(msgsock, &c, 1) == 1) { ... }). No buffering.

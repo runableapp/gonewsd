@@ -56,6 +56,8 @@ type Config struct {
 	AuthDB   string // path to SQLite auth database
 	AuthLog  string // path for auth events (failures/success); empty = use ErrorLog
 	PidFile  string // optional; server writes PID for CLI reload signal
+	TLSCert  string // path to TLS certificate file (PEM); enables STARTTLS
+	TLSKey   string // path to TLS private key file (PEM); required with TLSCert
 }
 
 // DefaultConfig returns config with newsd-compatible defaults.
@@ -212,6 +214,10 @@ func (c *Config) Load(path string) error {
 			c.AuthLog = value
 		case "pidfile":
 			c.PidFile = value
+		case "tls.cert", "tlscert":
+			c.TLSCert = value
+		case "tls.key", "tlskey":
+			c.TLSKey = value
 		default:
 			fmt.Fprintf(os.Stderr, "gonewsd: Unknown config directive %q on line %d of %q\n", name, linenum, path)
 		}
@@ -223,7 +229,7 @@ func (c *Config) Load(path string) error {
 	}
 
 	// Resolve relative paths to absolute so they still work after runAs() does Chdir("/").
-	for _, pathField := range []*string{&c.AuthDB, &c.AuthLog, &c.PidFile, &c.SpoolDir} {
+	for _, pathField := range []*string{&c.AuthDB, &c.AuthLog, &c.PidFile, &c.SpoolDir, &c.TLSCert, &c.TLSKey} {
 		if *pathField != "" && !filepath.IsAbs(*pathField) {
 			if abs, err := filepath.Abs(*pathField); err == nil {
 				*pathField = abs
