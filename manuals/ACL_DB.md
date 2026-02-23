@@ -11,6 +11,7 @@ erDiagram
     integer user_id PK "AUTOINCREMENT"
     string username "UNIQUE-NOT_NULL"
     string password_hash "NOT_NULL-bcrypt"
+    string realname "NOT_NULL-default_empty"
   }
 
   groups {
@@ -43,6 +44,7 @@ erDiagram
 - **`user_id`**: integer primary key (sequential).
 - **`username`**: the login name (email); must be unique.
 - **`password_hash`**: bcrypt hash of the password.
+- **`realname`**: optional display name (e.g. "John Doe"); default empty string.
 
 ### `groups`
 
@@ -75,7 +77,8 @@ PRAGMA foreign_keys = ON;
 CREATE TABLE users (
     user_id INTEGER PRIMARY KEY AUTOINCREMENT,
     username TEXT UNIQUE NOT NULL,
-    password_hash TEXT NOT NULL
+    password_hash TEXT NOT NULL,
+    realname TEXT NOT NULL DEFAULT ''
 );
 
 -- Groups Table

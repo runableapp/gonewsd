@@ -57,9 +57,9 @@ rm -f "$DB"
 # alice: access to test.group1 only
 # bob: access to test.group2 only
 # admin: access to all groups (*)
-"$BINDIR/gonewsd" -c "$CONF" adduser -user alice@test.com -pass alicepass12 -groups test.group1
-"$BINDIR/gonewsd" -c "$CONF" adduser -user bob@test.com -pass bobspass12 -groups test.group2
-"$BINDIR/gonewsd" -c "$CONF" adduser -user admin@test.com -pass adminpass12 -groups '*'
+"$BINDIR/gonewsd" -c "$CONF" adduser -user alice@test.com -pass alicepass12 -realname "Alice Test" -groups test.group1
+"$BINDIR/gonewsd" -c "$CONF" adduser -user bob@test.com -pass bobspass12 -realname "Bob Test" -groups test.group2
+"$BINDIR/gonewsd" -c "$CONF" adduser -user admin@test.com -pass adminpass12 -realname "Admin" -groups '*'
 
 # Post one article into test.public so we can read it (via mailgateway or we'll POST in test)
 # Create a minimal article file so GROUP test.public and ARTICLE 1 work

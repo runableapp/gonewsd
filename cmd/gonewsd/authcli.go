@@ -556,11 +556,12 @@ func existingGroupNames(db *sql.DB) []string {
 	return out
 }
 
-// runAddUser adds a new user (email, password, groups) to the auth DB; prompts if interactive.
+// runAddUser adds a new user (email, password, realname, groups) to the auth DB; prompts if interactive.
 func runAddUser(_ *config.Config, db *sql.DB, args []string) {
-	fs := flagSet("adduser", "adduser -user <email> -pass <password> -groups <list|*>")
+	fs := flagSet("adduser", "adduser -user <email> -pass <password> [-realname <name>] -groups <list|*>")
 	user := fs.String("user", "", "username (email)")
 	pass := fs.String("pass", "", "password")
+	realname := fs.String("realname", "", "real name / display name (optional)")
 	groups := fs.String("groups", "", "comma-separated groups or *")
 	fs.Parse(args)
 	*user = promptEmailIfMissing(*user)
@@ -572,6 +573,9 @@ func runAddUser(_ *config.Config, db *sql.DB, args []string) {
 	if *pass == "" {
 		fs.Usage()
 		os.Exit(1)
+	}
+	if *realname == "" && interactive() {
+		*realname = prompt("real name (optional, press Enter to skip): ")
 	}
 	*groups = promptGroupsIfMissing(db, *groups)
 	if *groups == "" {
@@ -595,7 +599,7 @@ func runAddUser(_ *config.Config, db *sql.DB, args []string) {
 		fmt.Fprintf(os.Stderr, "🛑 Error: hash password: %v\n", err)
 		os.Exit(1)
 	}
-	if err := auth.AddUser(db, *user, hash, *groups); err != nil {
+	if err := auth.AddUser(db, *user, hash, *realname, *groups); err != nil {
 		fmt.Fprintf(os.Stderr, "🛑 Error: adduser: %v\n", err)
 		os.Exit(1)
 	}
@@ -623,18 +627,18 @@ func runListUser(db *sql.DB, args []string) {
 		return
 	case "pretty":
 		tbl := tablewriter.NewTable(os.Stdout)
-		tbl.Header("username", "groups")
+		tbl.Header("username", "realname", "groups")
 		data := make([][]any, 0, len(list))
 		for _, u := range list {
-			data = append(data, []any{u.Username, u.Groups})
+			data = append(data, []any{u.Username, u.RealName, u.Groups})
 		}
 		tbl.Bulk(data)
 		tbl.Render()
 		return
 	}
-	fmt.Println("username\tgroups")
+	fmt.Println("username\trealname\tgroups")
 	for _, u := range list {
-		fmt.Printf("%s\t%s\n", u.Username, u.Groups)
+		fmt.Printf("%s\t%s\t%s\n", u.Username, u.RealName, u.Groups)
 	}
 }
 
@@ -752,11 +756,12 @@ func promptGroupsOptional(_ *config.Config, db *sql.DB) string {
 	}
 }
 
-// runUpdateUser updates a user's password and/or group memberships in the auth DB; prompts if interactive.
+// runUpdateUser updates a user's password, realname, and/or group memberships in the auth DB; prompts if interactive.
 func runUpdateUser(cfg *config.Config, db *sql.DB, args []string) {
-	fs := flagSet("updateuser", "updateuser -user <email> [-pass <password>] [-groups <list|*>]")
+	fs := flagSet("updateuser", "updateuser -user <email> [-pass <password>] [-realname <name>] [-groups <list|*>]")
 	user := fs.String("user", "", "username (email) to update")
 	pass := fs.String("pass", "", "new password (omit to leave unchanged)")
+	realname := fs.String("realname", "", "new real name (omit to leave unchanged)")
 	groups := fs.String("groups", "", "new groups: comma-separated or * (omit to leave unchanged)")
 	fs.Parse(args)
 	*user = promptExistingUserEmail(db, *user)
@@ -764,15 +769,18 @@ func runUpdateUser(cfg *config.Config, db *sql.DB, args []string) {
 		fs.Usage()
 		os.Exit(1)
 	}
-	if *pass == "" && *groups == "" {
+	if *pass == "" && *realname == "" && *groups == "" {
 		if interactive() {
 			*pass = promptPasswordOptional()
+			if *realname == "" {
+				*realname = promptIfMissing("", "new real name (leave blank to keep current): ")
+			}
 			if *groups == "" {
 				*groups = promptGroupsOptional(cfg, db)
 			}
 		}
-		if *pass == "" && *groups == "" {
-			fmt.Fprintf(os.Stderr, "⚠️ specify -pass and/or -groups to update\n")
+		if *pass == "" && *realname == "" && *groups == "" {
+			fmt.Fprintf(os.Stderr, "⚠️ specify -pass, -realname, and/or -groups to update\n")
 			fs.Usage()
 			os.Exit(1)
 		}
@@ -801,7 +809,7 @@ func runUpdateUser(cfg *config.Config, db *sql.DB, args []string) {
 		}
 		newGroups = *groups
 	}
-	if err := auth.UpdateUser(db, *user, newHash, newGroups); err != nil {
+	if err := auth.UpdateUser(db, *user, newHash, *realname, newGroups); err != nil {
 		fmt.Fprintf(os.Stderr, "🛑 Error: updateuser: %v\n", err)
 		os.Exit(1)
 	}

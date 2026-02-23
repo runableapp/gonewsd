@@ -370,7 +370,7 @@ info "Test 31: CANCEL with wrong From (should be rejected)"
 MSGID1=$(auth_nc_cmd "GROUP test.group1\r\nXHDR Message-ID 1" | grep "^1 " | awk '{print $2}')
 if [[ -n "$MSGID1" ]]; then
   OUTPUT=$(nc_cmd "AUTHINFO USER test@test.com\r\nAUTHINFO PASS testPass1!\r\nPOST\r\nFrom: hacker@evil.com\r\nNewsgroups: test.group1\r\nSubject: cancel\r\nControl: cancel $MSGID1\r\n\r\nTrying to cancel someone else's article\r\n.\r\nQUIT\r\n")
-  if echo "$OUTPUT" | grep -q "441.*permission denied"; then
+  if echo "$OUTPUT" | grep -q "441.*does not match"; then
     pass "CANCEL rejected -- From mismatch"
   else
     fail "CANCEL should have been rejected for From mismatch"

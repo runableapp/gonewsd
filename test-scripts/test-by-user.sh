@@ -51,14 +51,14 @@ read -p "Press enter to continue..."
 
 # ========================== user admin
 
-$gn adduser -user test@test.com -pass testpass12 -groups test.group1
-$gn adduser -user test2@test.com -pass testpass12 -groups test.group2,test.group3
+$gn adduser -user test@test.com -pass testpass12 -realname "Test User" -groups test.group1
+$gn adduser -user test2@test.com -pass testpass12 -realname "Test User 2" -groups test.group2,test.group3
 $gn adduser -user test3@test.com -pass testpass12 -groups test.group3
 
 echo
 echo "=== adding test4 user, give access to groups"
 $gn listgroup --format pretty
-$gn adduser -user test4@test.com -pass testpass12
+$gn adduser -user test4@test.com -pass testpass12 -realname "Test Four"
 
 # adding tmp user
 $gn adduser -user test-tmp@test.com -pass testpass12 -groups test.group3

@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"net/mail"
 	"os"
 	"strconv"
 	"strings"
@@ -328,7 +329,11 @@ func (s *Server) handleConn(rawConn net.Conn) {
 					continue
 				}
 				if s.authStore.ValidateUser(authUser, arg2) {
-					session = &auth.Session{Username: authUser, Groups: s.authStore.ResolveSessionGroups(authUser)}
+					session = &auth.Session{
+						Username: authUser,
+						RealName: s.authStore.GetUserRealName(authUser),
+						Groups:   s.authStore.ResolveSessionGroups(authUser),
+					}
 					s.log.LogAuth("auth ok user=%q from %s", authUser, remoteAddr)
 					s.send(conn, "281 Authenticated OK")
 				} else {
@@ -906,6 +911,21 @@ func (s *Server) handleConn(rawConn net.Conn) {
 				s.send(conn, "480 Authentication required")
 				continue
 			}
+			// Validate From: header matches authenticated user's email
+			if session != nil && session.Username != "" {
+				fromVal, hasFrom := group.GetHeaderValue(headers, "From:")
+				if !hasFrom || fromVal == "" {
+					s.log.LogAuth("post rejected group=%q user=%q from %s (missing From header)", postgroup, session.Username, remoteAddr)
+					s.send(conn, "441 posting rejected: From header is required")
+					continue
+				}
+				fromEmail := parseFromEmail(fromVal)
+				if !strings.EqualFold(fromEmail, session.Username) {
+					s.log.LogAuth("post rejected group=%q user=%q from %s (From %q does not match authenticated user)", postgroup, session.Username, remoteAddr, fromVal)
+					s.send(conn, "441 posting rejected: From address does not match authenticated user")
+					continue
+				}
+			}
 			// Line limit from current group (same as newsd: group.PostLimit())
 			limit := 0
 			if curGroup.Valid {
@@ -1166,29 +1186,6 @@ func readPostBodyRaw(r io.Reader) (string, error) {
 				mode = postModeCRLFDot
 				continue
 			}
-			// Lenient: ".\n" or ".\r\n" without newline before dot (same as newsd)
-			if mode == postModeNormal {
-				next, err := readByteRaw(r)
-				if err != nil {
-					msg.WriteByte(c)
-					return msg.String(), err
-				}
-				if next == '\n' {
-					return msg.String(), nil
-				}
-				if next == '\r' {
-					if _, err := readByteRaw(r); err != nil {
-						msg.WriteByte(c)
-						msg.WriteByte(next)
-						return msg.String(), err
-					}
-					return msg.String(), nil
-				}
-				msg.WriteByte(c)
-				msg.WriteByte(next)
-				mode = postModeNormal
-				continue
-			}
 			mode = postModeNormal
 			msg.WriteByte(c)
 		default:
@@ -1196,4 +1193,14 @@ func readPostBodyRaw(r io.Reader) (string, error) {
 			msg.WriteByte(c)
 		}
 	}
+}
+
+// parseFromEmail extracts the email address from a From: header value.
+// Handles "Real Name <email>", "<email>", and bare "email" formats.
+func parseFromEmail(from string) string {
+	addr, err := mail.ParseAddress(from)
+	if err == nil {
+		return addr.Address
+	}
+	return strings.TrimSpace(from)
 }

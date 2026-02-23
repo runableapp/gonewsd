@@ -28,9 +28,9 @@ show_banner() {
 
 show_menu() {
   echo "  1) 👥 listuser   - list users and their groups"
-  echo "  2) ➕ adduser    - add a user (email, password, groups)"
+  echo "  2) ➕ adduser    - add a user (email, password, realname, groups)"
   echo "  3) 🗑️  deleteuser - remove a user"
-  echo "  4) ✏️  updateuser - update user password or groups"
+  echo "  4) ✏️  updateuser - update user password, realname, or groups"
   echo "  5) 📰 listgroup  - list groups and permissions"
   echo "  6) ➕ addgroup   - add a newsgroup"
   echo "  7) 🗑️  deletegroup - delete or archive a group"

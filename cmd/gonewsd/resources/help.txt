@@ -5,10 +5,12 @@ SYNOPSIS
   gonewsd [ -c config-file ] [ -d ] [ -b ]
   gonewsd mailgateway [ -preserve-date ] <group>
   gonewsd rotate
-  gonewsd adduser [ -user <email> ] [ -pass <password> ] [ -groups <list|*> ]
+  gonewsd adduser [ -user <email> ] [ -pass <password> ] [ -realname <name> ]
+                  [ -groups <list|*> ]
   gonewsd listuser [ -format pretty | json ]
   gonewsd deleteuser [ -user <email> ] [ -y ]
-  gonewsd updateuser [ -user <email> ] [ -pass <password> ] [ -groups <list|*> ]
+  gonewsd updateuser [ -user <email> ] [ -pass <password> ] [ -realname <name> ]
+                     [ -groups <list|*> ]
   gonewsd addgroup [ -group <name> ] [ -g group_perm ] [ -o world_perm ]
                    [ -desc <description> ] [ -creator <name> ] [ -postlimit <n> ]
                    [ -ccpost <email> ] [ -replyto <email> ] [ -voidemail <email> ]
@@ -52,23 +54,25 @@ Commands:
 Admin commands (auth.db and config -c required). Auth data is stored in a normalized SQLite DB
 (users, groups, group_membership). See manuals/ACL_DB.md for schema.
 
-  adduser         Add a user (email, password, comma-separated groups or *).
+  adduser         Add a user (email, password, optional realname, comma-separated groups or *).
                   If -user, -pass, or -groups are omitted and stdin is a TTY, you are prompted.
                   Email must be valid (e.g. user@example.com); invalid input is rejected and re-asked.
                   Password prompt shows requirements (9-20 chars, letters/digits/special, no spaces);
                   invalid password is rejected and re-asked.
+                  -realname is optional (display name for the user, e.g. "John Doe").
                   When prompted for groups: valid groups are listed first; "*" is valid (all groups).
                   If you enter an invalid group name, the invalid name(s) are shown and the next
                   prompt pre-fills your previous input so you can edit it (cursor at end) and re-enter.
-  listuser        List all users. -format pretty: ASCII table; -format json: JSON array; default: tab-separated.
+  listuser        List all users and realnames. -format pretty: ASCII table; -format json: JSON array;
+                  default: tab-separated.
   deleteuser      Remove a user; -y skips confirmation.
                   If -user is omitted and stdin is a TTY, you are prompted for an existing user email.
                   Invalid email or user not found re-prompts with your previous input pre-filled.
-  updateuser      Update a user's password and/or groups; omit -pass or -groups to leave unchanged.
+  updateuser      Update a user's password, realname, and/or groups; omit flags to leave unchanged.
                   If -user is omitted and stdin is a TTY, you are prompted for an existing user email.
-                  Invalid or non-existent user re-prompts with pre-fill. If both -pass and -groups are
-                  omitted and stdin is a TTY, you are prompted for new password (blank = keep) and/or
-                  new groups (blank = keep); invalid input re-prompts with pre-fill.
+                  Invalid or non-existent user re-prompts with pre-fill. If -pass, -realname, and
+                  -groups are all omitted and stdin is a TTY, you are prompted for each
+                  (blank = keep current); invalid input re-prompts with pre-fill.
   addgroup        Create a newsgroup and set ACL (group/world perm: r, w, rw).
                   Options: -desc (description), -creator, -postlimit (max articles),
                   -ccpost (CC email), -replyto, -voidemail (bounce address).
@@ -151,6 +155,8 @@ NNTP PROTOCOL SUPPORT
                   Supports wildmat pattern matching.
   LISTGROUP [group [range]]
                   Supports article range argument.
+  POST            When authenticated, the From: header email must match
+                  the authenticated user's email; mismatches are rejected.
   CANCEL          Control: cancel <message-id> in a POST deletes the
                   original article if From: matches.
   STARTTLS        Upgrade connection to TLS (requires tls.cert and

@@ -129,6 +129,15 @@ and who can write (post) (w) for that group.
 > `-g rw -o rw`  
 > to make the group world-readable and writable (no login required).
 
+### From: header validation
+
+When a user is authenticated (via AUTHINFO USER/PASS), the server
+validates that the `From:` header in any POST matches the
+authenticated user's email address. If the email in the `From:` header
+does not match, the post is rejected with `441`. This prevents users
+from impersonating other users. The check handles standard formats:
+`user@example.com`, `Real Name <user@example.com>`, etc.
+
 ### auth.mode ### 
 
 *public, private, read_public_write_private* sets the default when a group has no ACL: 
@@ -146,6 +155,7 @@ Admin commands require a config file (`-c`) and an auth.db. If `-c` is not speci
 Examples:
 
     gonewsd adduser
+    gonewsd adduser -user user@example.com -pass "secretPass1" -realname "John Doe" -groups "*"
     gonewsd listuser -format pretty
     gonewsd listuser -format json
     gonewsd listgroup -format json
@@ -170,26 +180,17 @@ Full usage:
 
 ### USING ADMIN-CLI
 
-admin-cli.sh is an interactive menu-driven wrapper for gonewsd auth
-commands. Run it from the gonewsd repo root; it uses the same config
-and auth.db as gonewsd.
+gonewsdadm is an interactive menu-driven wrapper for gonewsd auth
+commands. It uses the same config and auth.db as gonewsd.
 
-From the project root:
-
-    ./admin-cli.sh
-
-You can override the config and binary location with environment
-variables:
-
-    CONFIG=/etc/gonewsd.conf ./admin-cli.sh
-    BINDIR=/usr/local/bin CONFIG=/etc/gonewsd.conf ./admin-cli.sh
+    sudo gonewsdadm
 
 The menu offers:
 
     1) listuser    - list users and their groups
-    2) adduser     - add a user (email, password, groups)
+    2) adduser     - add a user (email, password, realname, groups)
     3) deleteuser  - remove a user
-    4) updateuser  - update user password or groups
+    4) updateuser  - update user password, realname, or groups
     5) listgroup   - list groups and permissions
     6) addgroup    - add a newsgroup ACL
     7) deletegroup - delete or archive a group
@@ -250,8 +251,10 @@ For more detailed documentation, see the [manuals/](manuals/) directory:
 
 **Authentication and access control:**
 - Multi-user SQLite authentication (vs single-user plaintext)
+- Per-user realname field (optional display name)
 - Per-group ACL (group_perm / world_perm)
 - Group metadata fields (description, creator, postlimit, ccpost, replyto, voidemail)
+- From: header validation (authenticated user's email must match From: address)
 - Auth logging (auth.log)
 - AUTHINFO SIMPLE (legacy auth support)
 

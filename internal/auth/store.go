@@ -29,6 +29,7 @@ const (
 // Nil or Username=="" means not authenticated.
 type Session struct {
 	Username string   // email
+	RealName string   // display name (optional)
 	Groups   []string // resolved group list (from memberships)
 }
 
@@ -37,6 +38,7 @@ type User struct {
 	UserID       int64
 	Username     string
 	PasswordHash string
+	RealName     string
 }
 
 // Group is an in-memory group record (from DB).
@@ -147,6 +149,17 @@ func (st *Store) ResolveSessionGroups(username string) []string {
 		out = append(out, g)
 	}
 	return out
+}
+
+// GetUserRealName returns the real name for a user, or "" if not found.
+func (st *Store) GetUserRealName(username string) string {
+	st.mu.RLock()
+	u, exists := st.users[username]
+	st.mu.RUnlock()
+	if !exists || u == nil {
+		return ""
+	}
+	return u.RealName
 }
 
 // UserInGroup returns true if session has this group.

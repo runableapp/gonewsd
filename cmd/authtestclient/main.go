@@ -200,8 +200,12 @@ func (c *client) run(groupSelect, groupPost string) error {
 		if !strings.HasPrefix(first, "340") {
 			return fmt.Errorf("POST: %s", first)
 		}
+		fromAddr := "authtest@test"
+		if u := os.Getenv("AUTH_USER"); u != "" {
+			fromAddr = u
+		}
 		postBody := []string{
-			"From: authtest@test",
+			"From: " + fromAddr,
 			"Newsgroups: " + groupPost,
 			"Subject: auth test",
 			"Message-ID: <auth-test-" + groupPost + "@test>",

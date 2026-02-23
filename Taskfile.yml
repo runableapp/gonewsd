@@ -33,7 +33,7 @@ tasks:
       # Clean up test artifacts from previous runs
       - rm -rf ./test-scripts/spool ./test-scripts/auth.db ./test-scripts/auth.log ./test-scripts/gonewsd.pid ./test-scripts/auth-test
       - ./test-scripts/create-test-groups.sh
-      - ./bin/gonewsd -c ./test-scripts/test.conf adduser -user test@test.com -pass testPass1! -groups "*"
+      - ./bin/gonewsd -c ./test-scripts/test.conf adduser -user test@test.com -pass testPass1! -realname "Test User" -groups "*"
       - |
         # Start gonewsd in background
         ./bin/gonewsd -d -c ./test-scripts/test.conf &

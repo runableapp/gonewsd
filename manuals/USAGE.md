@@ -72,9 +72,9 @@ The menu:
 
 ```
   1) listuser    - list users and their groups
-  2) adduser     - add a user (email, password, groups)
+  2) adduser     - add a user (email, password, realname, groups)
   3) deleteuser  - remove a user
-  4) updateuser  - update user password or groups
+  4) updateuser  - update user password, realname, or groups
   5) listgroup   - list groups and permissions
   6) addgroup    - add a newsgroup
   7) deletegroup - delete or archive a group
@@ -88,7 +88,9 @@ Each option runs the corresponding gonewsd subcommand interactively. You will be
 
 ## 👥 Managing users
 
-Users are stored in the `auth.db` SQLite database. Passwords are bcrypt-hashed. Each user has an email address (username) and belongs to one or more groups.
+Users are stored in the `auth.db` SQLite database. Passwords are bcrypt-hashed. Each user has an email address (username), an optional real name (display name), and belongs to one or more groups.
+
+When authenticated, the server validates that the `From:` header in any POST matches the user's email address. This prevents impersonation.
 
 ### Add a user
 
@@ -101,18 +103,19 @@ gonewsd adduser -c /etc/gonewsd.conf
 You will be asked for:
 1. **Email** -- must be a valid email address (e.g. `user@example.com`)
 2. **Password** -- 9-20 characters, letters/digits/special characters, no spaces
-3. **Groups** -- comma-separated group names, or `*` for all groups
+3. **Real name** -- optional display name (e.g. `John Doe`); press Enter to skip
+4. **Groups** -- comma-separated group names, or `*` for all groups
 
 **Non-interactive (all flags):**
 
 ```bash
-gonewsd adduser -user user@example.com -pass "secretPass1" -groups "my.group,other.group" -c /etc/gonewsd.conf
+gonewsd adduser -user user@example.com -pass "secretPass1" -realname "John Doe" -groups "my.group,other.group" -c /etc/gonewsd.conf
 ```
 
 Or assign to all groups:
 
 ```bash
-gonewsd adduser -user admin@example.com -pass "adminPass1!" -groups "*" -c /etc/gonewsd.conf
+gonewsd adduser -user admin@example.com -pass "adminPass1!" -realname "Admin" -groups "*" -c /etc/gonewsd.conf
 ```
 
 ### List users
@@ -130,7 +133,7 @@ gonewsd listuser -format json -c /etc/gonewsd.conf
 
 ### Update a user
 
-Change a user's password, groups, or both. Omitted fields are left unchanged.
+Change a user's password, real name, groups, or any combination. Omitted fields are left unchanged.
 
 **Interactive:**
 
@@ -144,11 +147,14 @@ gonewsd updateuser -c /etc/gonewsd.conf
 # Change password only
 gonewsd updateuser -user user@example.com -pass "newPass123" -c /etc/gonewsd.conf
 
+# Change real name only
+gonewsd updateuser -user user@example.com -realname "New Name" -c /etc/gonewsd.conf
+
 # Change groups only
 gonewsd updateuser -user user@example.com -groups "group.a,group.b" -c /etc/gonewsd.conf
 
-# Change both
-gonewsd updateuser -user user@example.com -pass "newPass123" -groups "*" -c /etc/gonewsd.conf
+# Change multiple fields
+gonewsd updateuser -user user@example.com -pass "newPass123" -realname "New Name" -groups "*" -c /etc/gonewsd.conf
 ```
 
 ### Delete a user
@@ -392,8 +398,8 @@ sudo gonewsd addgroup -group myorg.announce -g rw -o r -desc "Announcements" -c 
 ### 3. Create users
 
 ```bash
-sudo gonewsd adduser -user alice@example.com -pass "alicePass1!" -groups "*" -c /etc/gonewsd.conf
-sudo gonewsd adduser -user bob@example.com -pass "bobSecure2@" -groups "myorg.general,myorg.dev" -c /etc/gonewsd.conf
+sudo gonewsd adduser -user alice@example.com -pass "alicePass1!" -realname "Alice" -groups "*" -c /etc/gonewsd.conf
+sudo gonewsd adduser -user bob@example.com -pass "bobSecure2@" -realname "Bob" -groups "myorg.general,myorg.dev" -c /etc/gonewsd.conf
 ```
 
 ### 4. Start the server

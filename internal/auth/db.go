@@ -22,7 +22,8 @@ PRAGMA foreign_keys = ON;
 CREATE TABLE IF NOT EXISTS users (
 	user_id INTEGER PRIMARY KEY AUTOINCREMENT,
 	username TEXT NOT NULL UNIQUE,
-	password_hash TEXT NOT NULL
+	password_hash TEXT NOT NULL,
+	realname TEXT NOT NULL DEFAULT ''
 );
 
 CREATE TABLE IF NOT EXISTS groups (
@@ -94,6 +95,40 @@ func migrateGroupColumns(db *sql.DB) error {
 	return nil
 }
 
+// migrateUserColumns adds new columns to users table if they don't exist (for existing databases).
+func migrateUserColumns(db *sql.DB) error {
+	rows, err := db.Query("PRAGMA table_info(users)")
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+
+	hasRealname := false
+	for rows.Next() {
+		var cid int
+		var name, typ string
+		var notnull, pk int
+		var dflt sql.NullString
+		if err := rows.Scan(&cid, &name, &typ, &notnull, &dflt, &pk); err != nil {
+			return err
+		}
+		if name == "realname" {
+			hasRealname = true
+			break
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+
+	if !hasRealname {
+		if _, err := db.Exec("ALTER TABLE users ADD COLUMN realname TEXT NOT NULL DEFAULT ''"); err != nil {
+			return fmt.Errorf("migrate users: add realname: %w", err)
+		}
+	}
+	return nil
+}
+
 // OpenDB opens the SQLite database at path (create if not exists). For server: open read-only and load into store. For CLI: open read-write.
 func OpenDB(path string, readOnly bool) (*sql.DB, error) {
 	if path == "" {
@@ -129,8 +164,11 @@ func EnsureSchema(db *sql.DB) error {
 	if _, err := db.Exec(schemaV1); err != nil {
 		return err
 	}
-	// Migrate existing databases to add new group columns
-	return migrateGroupColumns(db)
+	// Migrate existing databases to add new columns
+	if err := migrateGroupColumns(db); err != nil {
+		return err
+	}
+	return migrateUserColumns(db)
 }
 
 // LoadStoreFromDB loads all users and group_acls from db into store. Call after OpenDB (read-only or read-write).
@@ -138,14 +176,14 @@ func LoadStoreFromDB(db *sql.DB, store *Store) error {
 	store.Clear()
 
 	// Load users
-	rows, err := db.Query("SELECT user_id, username, password_hash FROM users")
+	rows, err := db.Query("SELECT user_id, username, password_hash, realname FROM users")
 	if err != nil {
 		return fmt.Errorf("query users: %w", err)
 	}
 	defer rows.Close()
 	for rows.Next() {
 		var u User
-		if err := rows.Scan(&u.UserID, &u.Username, &u.PasswordHash); err != nil {
+		if err := rows.Scan(&u.UserID, &u.Username, &u.PasswordHash, &u.RealName); err != nil {
 			return err
 		}
 		store.LoadUser(&u)
@@ -194,14 +232,14 @@ func LoadStoreFromDB(db *sql.DB, store *Store) error {
 }
 
 // AddUser inserts a user (CLI adduser). EnsureSchema must have been called.
-func AddUser(db *sql.DB, username, passwordHash, groups string) error {
+func AddUser(db *sql.DB, username, passwordHash, realname, groups string) error {
 	tx, err := db.Begin()
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
 
-	res, err := tx.Exec("INSERT INTO users (username, password_hash) VALUES (?, ?)", username, passwordHash)
+	res, err := tx.Exec("INSERT INTO users (username, password_hash, realname) VALUES (?, ?, ?)", username, passwordHash, realname)
 	if err != nil {
 		return err
 	}
@@ -228,12 +266,13 @@ func DeleteUser(db *sql.DB, username string) error {
 	return nil
 }
 
-// UpdateUser updates a user's password and/or group memberships (CLI updateuser).
-// Empty newPasswordHash or newGroups means leave unchanged.
-func UpdateUser(db *sql.DB, username, newPasswordHash, newGroups string) error {
+// UpdateUser updates a user's password, realname, and/or group memberships (CLI updateuser).
+// Empty newPasswordHash, newRealName, or newGroups means leave unchanged.
+// To clear realname, pass a single space.
+func UpdateUser(db *sql.DB, username, newPasswordHash, newRealName, newGroups string) error {
 	var userID int64
-	var curHash string
-	err := db.QueryRow("SELECT user_id, password_hash FROM users WHERE username = ?", username).Scan(&userID, &curHash)
+	var curHash, curRealName string
+	err := db.QueryRow("SELECT user_id, password_hash, realname FROM users WHERE username = ?", username).Scan(&userID, &curHash, &curRealName)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return fmt.Errorf("user not found: %s", username)
@@ -243,13 +282,16 @@ func UpdateUser(db *sql.DB, username, newPasswordHash, newGroups string) error {
 	if newPasswordHash == "" {
 		newPasswordHash = curHash
 	}
+	if newRealName == "" {
+		newRealName = curRealName
+	}
 
 	tx, err := db.Begin()
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
-	if _, err := tx.Exec("UPDATE users SET password_hash = ? WHERE user_id = ?", newPasswordHash, userID); err != nil {
+	if _, err := tx.Exec("UPDATE users SET password_hash = ?, realname = ? WHERE user_id = ?", newPasswordHash, newRealName, userID); err != nil {
 		return err
 	}
 	if newGroups != "" {
@@ -337,24 +379,32 @@ func ListUserGroups(db *sql.DB, username string) ([]string, error) {
 	return out, rows.Err()
 }
 
-// ListUsers returns all usernames and groups (no password hashes). For CLI listuser.
-func ListUsers(db *sql.DB) ([]struct{ Username, Groups string }, error) {
-	rows, err := db.Query("SELECT username FROM users ORDER BY username")
+// UserInfo holds user metadata returned by ListUsers.
+type UserInfo struct {
+	Username string
+	RealName string
+	Groups   string
+}
+
+// ListUsers returns all usernames, realnames, and groups (no password hashes). For CLI listuser.
+func ListUsers(db *sql.DB) ([]UserInfo, error) {
+	rows, err := db.Query("SELECT username, realname FROM users ORDER BY username")
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var out []struct{ Username, Groups string }
+	var out []UserInfo
 	for rows.Next() {
-		var u string
-		if err := rows.Scan(&u); err != nil {
+		var u UserInfo
+		if err := rows.Scan(&u.Username, &u.RealName); err != nil {
 			return nil, err
 		}
-		groups, err := GetUserGroups(db, u)
+		groups, err := GetUserGroups(db, u.Username)
 		if err != nil {
 			return nil, err
 		}
-		out = append(out, struct{ Username, Groups string }{u, groups})
+		u.Groups = groups
+		out = append(out, u)
 	}
 	return out, rows.Err()
 }
