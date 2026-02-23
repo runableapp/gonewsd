@@ -74,7 +74,7 @@ func (a *Article) Load(cfg *config.Config, group string, num uint64) error {
 	a.Filename = GetArticlePath(cfg, group, num)
 	f, err := os.Open(a.Filename)
 	if err != nil {
-		a.Errmsg = fmt.Sprintf("article %d no longer exists: %q: %v", num, a.Filename, err)
+		a.Errmsg = fmt.Sprintf("article %d no longer exists", num)
 		return err
 	}
 	defer f.Close()
@@ -168,7 +168,7 @@ func (a *Article) parseHeader(key, val string) {
 func (a *Article) SendArticle(w io.Writer, sendHead, sendBody bool, log *logging.Logger) error {
 	f, err := os.Open(a.Filename)
 	if err != nil {
-		a.Errmsg = fmt.Sprintf("article %d no longer exists: %v", a.Number, err)
+		a.Errmsg = fmt.Sprintf("article %d no longer exists", a.Number)
 		return err
 	}
 	defer f.Close()
