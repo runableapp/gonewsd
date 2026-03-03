@@ -16,12 +16,19 @@ jobs:
           - runner: ubuntu-latest
             goos: linux
             goarch: amd64
+            binary_name: gonewsd
           - runner: macos-latest
             goos: darwin
             goarch: amd64
+            binary_name: gonewsd
           - runner: macos-latest
             goos: darwin
             goarch: arm64
+            binary_name: gonewsd
+          - runner: ubuntu-latest
+            goos: windows
+            goarch: amd64
+            binary_name: gonewsd.exe
 
     steps:
       - name: Checkout
@@ -38,20 +45,26 @@ jobs:
 
       - name: Build
         env:
+          # Static Go binaries across targets (where supported by toolchain/OS).
           CGO_ENABLED: 0
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
         run: |
           cp VERSION.txt cmd/gonewsd/resources/VERSION.txt
           mkdir -p bin
-          go build -ldflags="-s -w" -o bin/gonewsd ./cmd/gonewsd
+          go build -ldflags="-s -w" -o bin/${{ matrix.binary_name }} ./cmd/gonewsd
 
       - name: Archive binaries
         run: |
+          cp gonewsd.conf bin/
           cp gonewsdadm bin/
           cp install-ubuntu-service.sh bin/
-          cp manuals/INSTALL.md bin/
-          cp bootscripts/linux/gonewsd.service bin/
+          cp -r manuals bin/
+          cp LICENSE bin/
+          if [ "${{ matrix.goos }}" = "linux" ]; then
+            mkdir -p bin/bootscripts/linux
+            cp -r bootscripts/linux/. bin/bootscripts/linux/
+          fi
           cd bin
           zip -r ../gonewsd-v${{ steps.version.outputs.ver }}-${{ matrix.goos }}-${{ matrix.goarch }}.zip .
           cd ..

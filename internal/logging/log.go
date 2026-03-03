@@ -8,7 +8,6 @@ package logging
 import (
 	"fmt"
 	"io"
-	"log/syslog"
 	"os"
 	"os/exec"
 	"strings"
@@ -29,7 +28,7 @@ type Logger struct {
 	file       *os.File
 	authFile   *os.File // auth log file when authLog path is set
 	pipeCmd    *exec.Cmd
-	syslog     *syslog.Writer
+	syslog     *syslogWriter
 }
 
 // NewLogger creates a logger from config. Call Init to open the log destination.
@@ -53,7 +52,7 @@ func (l *Logger) Init() error {
 	case "stderr":
 		l.writer = os.Stderr
 	case "syslog":
-		w, err := syslog.New(syslog.LOG_NEWS|syslog.LOG_DAEMON, "gonewsd")
+		w, err := openSyslog("gonewsd")
 		if err != nil {
 			return fmt.Errorf("syslog: %w", err)
 		}

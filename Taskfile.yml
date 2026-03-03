@@ -2,11 +2,17 @@ version: '3'
 
 tasks:
   build:
-    desc: Build gonewsd into bin/
+    desc: Build static gonewsd binaries for linux/darwin/windows into bin/
     cmds:
       - cp VERSION.txt cmd/gonewsd/resources/VERSION.txt
       - mkdir -p bin
+      # Keep native path for local scripts/tests that expect ./bin/gonewsd
       - CGO_ENABLED=0 go build -ldflags="-s -w" -o bin/gonewsd ./cmd/gonewsd
+      # Cross-platform static-style builds (CGO disabled)
+      - CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags="-s -w" -o bin/gonewsd-linux-amd64 ./cmd/gonewsd
+      - CGO_ENABLED=0 GOOS=darwin GOARCH=amd64 go build -ldflags="-s -w" -o bin/gonewsd-darwin-amd64 ./cmd/gonewsd
+      - CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build -ldflags="-s -w" -o bin/gonewsd-darwin-arm64 ./cmd/gonewsd
+      - CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -ldflags="-s -w" -o bin/gonewsd-windows-amd64.exe ./cmd/gonewsd
 
   build-test:
     desc: Build test binaries (authtestclient, nntpclient) into bin/

@@ -1,10 +1,10 @@
+//go:build windows
+
 // Copyright © 2026 Runable.app. GPL-3.0.
 //
-// lock.go provides per-group file locking. Dirname returns the group's directory
-// path under SpoolDir. readLock acquires a shared flock on the group's .lock file;
-// writeLock acquires an exclusive flock. Callers use the returned unlock function to release the lock.
-//go:build !windows
-
+// lock_windows.go provides Windows-compatible group locking stubs.
+// Windows does not support syscall.Flock, so this falls back to best-effort
+// lock-file open/close semantics.
 package group
 
 import (
@@ -12,7 +12,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"syscall"
 
 	"gonewsd/internal/config"
 )
@@ -39,36 +38,26 @@ func openLockFile(cfg *config.Config, path string) (*os.File, error) {
 	return f, nil
 }
 
-// readLock acquires a shared lock on the group's .lock file.
+// readLock acquires a best-effort shared lock on Windows by holding the lock file open.
 func (g *Group) readLock(cfg *config.Config) (unlock func(), err error) {
 	path := filepath.Join(g.Dirname(cfg), ".lock")
 	f, err := openLockFile(cfg, path)
 	if err != nil {
 		return nil, err
 	}
-	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_SH); err != nil {
-		f.Close()
-		return nil, fmt.Errorf("flock(%s, LOCK_SH): %w", path, err)
-	}
 	return func() {
-		syscall.Flock(int(f.Fd()), syscall.LOCK_UN)
 		f.Close()
 	}, nil
 }
 
-// writeLock acquires an exclusive lock on the group's .lock file.
+// writeLock acquires a best-effort exclusive lock on Windows by holding the lock file open.
 func (g *Group) writeLock(cfg *config.Config) (unlock func(), err error) {
 	path := filepath.Join(g.Dirname(cfg), ".lock")
 	f, err := openLockFile(cfg, path)
 	if err != nil {
 		return nil, err
 	}
-	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX); err != nil {
-		f.Close()
-		return nil, fmt.Errorf("flock(%s, LOCK_EX): %w", path, err)
-	}
 	return func() {
-		syscall.Flock(int(f.Fd()), syscall.LOCK_UN)
 		f.Close()
 	}, nil
 }
