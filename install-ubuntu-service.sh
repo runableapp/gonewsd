@@ -64,6 +64,15 @@ else
   error "gonewsd.service not found."
 fi
 
+# Look for config template: same dir (zip) or project root
+if [[ -f "$SCRIPT_DIR/gonewsd.conf" ]]; then
+  CONFIG_SRC="$SCRIPT_DIR/gonewsd.conf"
+elif [[ -f "$SCRIPT_DIR/../gonewsd.conf" ]]; then
+  CONFIG_SRC="$SCRIPT_DIR/../gonewsd.conf"
+else
+  error "gonewsd.conf template not found."
+fi
+
 echo ""
 echo "  ██████╗  ██████╗ ███╗   ██╗███████╗██╗    ██╗███████╗██████╗ "
 echo " ██╔════╝ ██╔═══██╗████╗  ██║██╔════╝██║    ██║██╔════╝██╔══██╗"
@@ -109,27 +118,10 @@ info "Created $LOG_DIR"
 if [[ -f "$CONFIG_FILE" ]]; then
   warn "Config file $CONFIG_FILE already exists, not overwriting"
 else
-  info "Creating config file $CONFIG_FILE..."
-  cat > "$CONFIG_FILE" << 'EOF'
-# gonewsd configuration
-# See manuals/CONFIGURATION.md for all directives
-
-ErrorLog        /var/log/gonewsd/gonewsd.log
-Listen          :119
-SpoolDir        /var/spool/gonewsd
-User            usenet
-
-# Log level: error, info, debug
-LogLevel        info
-
-# Authentication (optional)
-auth.mode       public
-auth.db         /var/lib/gonewsd/auth.db
-auth.log        /var/log/gonewsd/auth.log
-
-# PID file (for SIGHUP reload)
-pidfile         /run/gonewsd/gonewsd.pid
-EOF
+  info "Installing config template to $CONFIG_FILE..."
+  install -m 644 "$CONFIG_SRC" "$CONFIG_FILE"
+  # Match config runtime user with installer-selected service user.
+  sed -i "s/^User[[:space:]].*/User ${INSTALL_USER}/" "$CONFIG_FILE"
   info "Created $CONFIG_FILE"
 fi
 
@@ -141,8 +133,8 @@ cp "$SERVICE_SRC" "$SERVICE_FILE"
 if [[ "$INSTALL_USER" != "usenet" ]]; then
   sed -i "s/User=usenet/User=$INSTALL_USER/" "$SERVICE_FILE"
   sed -i "s/Group=usenet/Group=$INSTALL_USER/" "$SERVICE_FILE"
-  # Also update config file
-  sed -i "s/User            usenet/User            $INSTALL_USER/" "$CONFIG_FILE"
+  # Also update config file runtime user.
+  sed -i "s/^User[[:space:]].*/User ${INSTALL_USER}/" "$CONFIG_FILE"
 fi
 
 info "Installed $SERVICE_FILE"
