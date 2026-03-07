@@ -57,11 +57,15 @@ jobs:
       - name: Archive binaries
         run: |
           cp gonewsd.conf bin/
-          cp gonewsdadm bin/
+          cp README.md bin/
           cp -r manuals bin/
           cp LICENSE bin/
-          if [ "${{ matrix.goos }}" = "linux" ]; then
-            cp install-ubuntu-service.sh bin/
+          if [ "${{ matrix.goos }}" = "windows" ]; then
+            cp gonewsdadm.bat bin/
+          else
+            cp gonewsdadm bin/
+          fi
+          if [ "${{ matrix.goos }}" = "linux" ] || [ "${{ matrix.goos }}" = "darwin" ]; then
             mkdir -p bin/bootscripts/linux
             cp -r bootscripts/linux/. bin/bootscripts/linux/
           fi

@@ -1068,7 +1068,7 @@ func runAddGroup(cfg *config.Config, db *sql.DB, args []string) {
 		os.Exit(1)
 	}
 	// Chown directory (and parent hierarchy) to configured user when running as root
-	if os.Geteuid() == 0 && !cfg.BadUser {
+	if isRootUser() && !cfg.BadUser {
 		// Walk up from group dir to spool dir, chowning each level
 		for d := dir; d != cfg.SpoolDir && len(d) > len(cfg.SpoolDir); d = filepath.Dir(d) {
 			if err := os.Chown(d, int(cfg.UID), int(cfg.GID)); err != nil {
