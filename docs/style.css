@@ -47,9 +47,9 @@ a:hover { text-decoration: underline; }
   background: var(--card-bg);
   border: 1px solid var(--border);
   border-radius: 50%;
-  width: 48px;
-  height: 48px;
-  font-size: 1.5rem;
+  width: 42px;
+  height: 42px;
+  font-size: 1.25rem;
   cursor: pointer;
   display: flex;
   align-items: center;
@@ -60,6 +60,48 @@ a:hover { text-decoration: underline; }
 
 .theme-toggle:hover {
   transform: scale(1.1);
+}
+
+.support-float-btn {
+  position: fixed;
+  top: 1rem;
+  right: 4.125rem;
+  background: var(--accent2);
+  color: #fff;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  height: 42px;
+  display: inline-flex;
+  align-items: center;
+  padding: 0 1rem;
+  font-size: 0.9rem;
+  font-weight: 700;
+  line-height: 1.1;
+  text-decoration: none;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.2);
+  transition: background 0.2s, transform 0.2s;
+  z-index: 1000;
+}
+
+.support-float-btn:hover {
+  background: var(--accent);
+  transform: translateY(-1px);
+  text-decoration: none;
+}
+
+@media (max-width: 640px) {
+  .support-float-btn {
+    right: 3.875rem;
+    height: 38px;
+    padding: 0 0.8rem;
+    font-size: 0.8rem;
+  }
+
+  .theme-toggle {
+    width: 38px;
+    height: 38px;
+    font-size: 1.1rem;
+  }
 }
 
 header {
@@ -171,6 +213,35 @@ code {
 }
 
 .btn:hover { background: var(--accent); text-decoration: none; }
+
+.github-btn {
+  background: #f6f8fa;
+  color: #24292f;
+  border: 1px solid #d0d7de;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.github-btn:hover {
+  background: #eef1f4;
+  color: #24292f;
+}
+
+[data-theme="dark"] .github-btn {
+  background: #21262d;
+  color: #c9d1d9;
+  border-color: #30363d;
+}
+
+[data-theme="dark"] .github-btn:hover {
+  background: #30363d;
+  color: #f0f6fc;
+}
+
+.github-icon {
+  flex: 0 0 auto;
+}
 
 footer {
   text-align: center;
