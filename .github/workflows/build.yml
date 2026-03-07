@@ -78,3 +78,31 @@ jobs:
         with:
           name: gonewsd-v${{ steps.version.outputs.ver }}-${{ matrix.goos }}-${{ matrix.goarch }}
           path: gonewsd-v${{ steps.version.outputs.ver }}-${{ matrix.goos }}-${{ matrix.goarch }}.zip
+
+  publish-release:
+    name: Publish Release Assets
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Read version
+        id: version
+        run: echo "ver=$(tr -d '[:space:]' < VERSION.txt)" >> "$GITHUB_OUTPUT"
+
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: gonewsd-v${{ steps.version.outputs.ver }}-*
+          path: dist
+          merge-multiple: true
+
+      - name: Publish GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ steps.version.outputs.ver }}
+          files: dist/*.zip
+          generate_release_notes: true
